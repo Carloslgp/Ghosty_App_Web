@@ -1,0 +1,55 @@
+# Dependências
+node_modules/
+
+# Build, cache e cobertura
+dist/
+build/
+coverage/
+.cache/
+*.tsbuildinfo
+
+# Variáveis de ambiente e segredos (só o .env.example vai para o Git)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Azure Functions (execução local)
+local.settings.json
+ghosty-functions/bin/
+ghosty-functions/obj/
+
+# Emulador das filas (Azurite)
+.azurite/
+__azurite_db*__.json
+__blobstorage__/
+__queuestorage__/
+
+# Banco local (SQLite)
+ghosty-safety-service/data/
+*.sqlite
+*.sqlite3
+
+# Front: Vite, PWA e Module Federation
+.vite/
+dev-dist/
+@mf-types/
+.__mf__temp/
+
+# Documentação gerada (ex.: HTML do AsyncAPI)
+ghosty-docs/site/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Editores
+.idea/
+.vscode/*
+!.vscode/extensions.json
