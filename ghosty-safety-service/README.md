@@ -8,7 +8,7 @@ Microserviço do domínio **Conta e Rede de apoio** do Ghosty, com Azure SQL Dat
 
 O **Ghosty** é um app web de segurança pessoal discreto. Por fora, é um app de notas comum que funciona de verdade. Por dentro, tem uma área de segurança para avisar a rede de apoio da pessoa.
 
-Nesta fase, o envio de alertas é **simulado**: o sistema monta a mensagem e registra o que teria acontecido, sem enviar nada. O Ghosty não substitui os canais oficiais (190, 180 e 192).
+Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) não envia nada. O Ghosty não aciona nem substitui os canais oficiais (190, 180 e 192).
 
 Projeto acadêmico da disciplina de Soluções Cloud.
 
@@ -26,6 +26,7 @@ flowchart LR
   SS -- "eventos" --> Q[["Storage Queues"]]
   Q -- "gatilho" --> FN
   FN -- "resultado" --> Q
+  FN -- "avisos" --> TG["Telegram<br/>(bot)"]
 ```
 
 ## Este projeto
@@ -38,9 +39,9 @@ Responsável por:
 - check-ins;
 - pedidos de ajuda.
 
-Oferece CRUD completo, documentado com Swagger. Publica eventos em filas do Azure Storage (transactional outbox) e consome o resultado das simulações feitas pela Azure Function. Só é chamado pelo BFF e pela Function.
+Oferece CRUD completo, documentado com Swagger. Publica eventos em filas do Azure Storage (transactional outbox) e consome o resultado dos envios feitos pela Azure Function. Só é chamado pelo BFF e pela Function.
 
-Dados sensíveis ficam protegidos: senhas e códigos com hash Argon2id, e contatos, telefones e mensagens cifrados com AES-256-GCM.
+Dados sensíveis ficam protegidos: senhas e códigos com hash Argon2id, e contatos (apelido e chat do Telegram) e mensagens cifrados com AES-256-GCM. O sistema não guarda telefone.
 
 ### Organização do código (Clean Architecture + Vertical Slice)
 

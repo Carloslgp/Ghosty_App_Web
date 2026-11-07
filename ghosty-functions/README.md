@@ -8,7 +8,7 @@ Azure Functions do Ghosty: cálculo, enriquecimento de dados e processamento de 
 
 O **Ghosty** é um app web de segurança pessoal discreto. Por fora, é um app de notas comum que funciona de verdade. Por dentro, tem uma área de segurança para avisar a rede de apoio da pessoa.
 
-Nesta fase, o envio de alertas é **simulado**: o sistema monta a mensagem e registra o que teria acontecido, sem enviar nada. O Ghosty não substitui os canais oficiais (190, 180 e 192).
+Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) não envia nada. O Ghosty não aciona nem substitui os canais oficiais (190, 180 e 192).
 
 Projeto acadêmico da disciplina de Soluções Cloud.
 
@@ -26,6 +26,7 @@ flowchart LR
   SS -- "eventos" --> Q[["Storage Queues"]]
   Q -- "gatilho" --> FN
   FN -- "resultado" --> Q
+  FN -- "avisos" --> TG["Telegram<br/>(bot)"]
 ```
 
 ## Este projeto
@@ -33,17 +34,18 @@ flowchart LR
 | Função | Gatilho | O que faz |
 |---|---|---|
 | `readiness` | HTTP | Calcula a prontidão da rede de apoio (pontuação e recomendações) |
-| `message-preview` | HTTP | Enriquece a mensagem de alerta: link do mapa, horário local, contagem de caracteres e de SMS |
-| `simulate-alert-dispatch` | Fila `help-requests` | Simula o envio do alerta para cada contato, em ordem, sem enviar nada |
+| `message-preview` | HTTP | Enriquece a mensagem de alerta: link do mapa, horário local e contagem de caracteres (limite de 4.096 do Telegram) |
+| `dispatch-alert` | Fila `help-requests` | Envia o aviso a cada contato confirmado, em ordem, pelo Telegram (ou registra para a página web do contato). No ensaio ou com `DELIVERY_MODE=simulated`, não envia nada |
+| `telegram-webhook` | HTTP | Recebe o `/start` e o `/parar` do bot e vincula o contato à rede de apoio |
 | `check-in-deadline` | Fila `check-in-deadlines` | Verifica no prazo se o check-in foi confirmado |
 
 ### Organização do código (Clean Architecture + Vertical Slice)
 
 ```text
 src/
-├── domain/          calculadoras e regras puras (prontidão, mensagem, SMS, ordem de envio)
+├── domain/          calculadoras e regras puras (prontidão, mensagem, limite de caracteres, plano de envio)
 ├── application/     casos de uso organizados por feature
-├── infrastructure/  cliente HTTP do safety-service e publicação em filas
+├── infrastructure/  cliente HTTP do safety-service, publicação em filas e cliente do Telegram
 └── functions/       registro dos gatilhos HTTP e de fila (camada de entrada)
 ```
 

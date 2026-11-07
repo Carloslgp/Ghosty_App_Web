@@ -4,7 +4,7 @@ App web de segurança pessoal discreto. Por fora, é um app de notas comum que f
 
 > **Status:** estrutura inicial. A implementação começa na Sprint 1.
 
-Nesta fase, o envio de alertas é **simulado**: o sistema monta a mensagem e registra o que teria acontecido, sem enviar nada. O Ghosty não substitui os canais oficiais: 190 (Polícia Militar), 180 (Central de Atendimento à Mulher) e 192 (SAMU).
+Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) mostra tudo o que aconteceria sem enviar nada. O Ghosty **não aciona** polícia nem serviços de emergência e não os substitui: 190 (Polícia Militar), 180 (Central de Atendimento à Mulher) e 192 (SAMU).
 
 Projeto acadêmico da disciplina de Soluções Cloud.
 
@@ -24,6 +24,7 @@ flowchart LR
   SS -- "eventos" --> Q[["Storage Queues"]]
   Q -- "gatilho" --> FN
   FN -- "resultado" --> Q
+  FN -- "avisos" --> TG["Telegram<br/>(bot)"]
 ```
 
 - **Front:** só conversa com o BFF, sempre pelo API Gateway.
