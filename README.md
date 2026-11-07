@@ -43,14 +43,6 @@ flowchart LR
 
 Cada pasta tem o próprio README, com detalhes e instruções para rodar.
 
-## Como contribuir
-
-- Use o Node.js 24 LTS (versão em `.nvmrc`).
-- A branch `main` é protegida e só recebe código por pull request, com 1 aprovação.
-- Crie as branches no padrão `feat/<ID>-<descrição>`, com o ID da tarefa do backlog (ex.: `feat/SAF-05-contatos`).
-- Escreva os commits no padrão Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
-- O modelo de pull request traz o checklist da definição de pronto.
-
 ## Alunos
 
 - Amanda Fila de Lima
