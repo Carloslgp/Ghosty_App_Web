@@ -1,0 +1,35 @@
+name: ci-docs
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-docs/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-docs.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-docs/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-docs.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-docs
+      scripts: lint test test:mocks

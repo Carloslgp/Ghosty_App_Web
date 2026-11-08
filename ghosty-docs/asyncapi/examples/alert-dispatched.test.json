@@ -1,0 +1,36 @@
+{
+  "specversion": "1.0",
+  "id": "01a1a36f-0748-7db9-8772-eec948316b64",
+  "type": "ghosty.functions.alert.dispatched.v1",
+  "source": "ghosty-functions",
+  "time": "2026-11-03T22:02:05Z",
+  "correlationId": "01a1a36e-f3c0-7e1a-aabf-74a1a69edba3",
+  "data": {
+    "helpRequestId": "01a1a36e-f3c0-7caf-bd64-8393b2c11fa5",
+    "accountId": "01a15965-b480-79af-a113-29b2fc82e5ef",
+    "mode": "test",
+    "deliveryMode": "telegram",
+    "status": "dispatched",
+    "dispatchedAt": "2026-11-03T22:02:05Z",
+    "steps": [
+      {
+        "stepOrder": 1,
+        "contactId": "01a1596a-4860-7d3c-971c-a474b56c7ce7",
+        "channel": "telegram",
+        "outcome": "would_send",
+        "message": "Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.",
+        "errorCode": null,
+        "occurredAt": "2026-11-03T22:02:04Z"
+      },
+      {
+        "stepOrder": 2,
+        "contactId": "01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2",
+        "channel": "web",
+        "outcome": "would_send",
+        "message": "Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.",
+        "errorCode": null,
+        "occurredAt": "2026-11-03T22:02:04Z"
+      }
+    ]
+  }
+}

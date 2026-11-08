@@ -1,0 +1,4043 @@
+openapi: 3.0.3
+info:
+  title: ghosty-bff
+  version: 0.1.0
+  description: |
+    Backend for Frontend do Ghosty: o único backend que o front chama, sempre pelo API Management.
+
+    **Autenticação**
+    - `Authorization: Bearer <jwt>`: JWT de acesso (RS256, 15 minutos, `aud` = `notes-web`), emitido em
+      `/auth/login` e `/auth/register` e renovado em `/auth/refresh`.
+    - `X-Safety-Token`: token da sessão segura (10 minutos, `scope=safety`), emitido em `POST /safety/session`.
+      Exigido em `/aggregated-data` e em toda rota `/safety/...`. Fica só em memória no navegador.
+    - Pelo API Management, o front também envia `Ocp-Apim-Subscription-Key` (chave pública do produto
+      `web-app`). Na máquina local o front chama o BFF direto, sem essa chave.
+
+    **Como o cliente deve tratar os erros**
+    - `401` sempre quer dizer "sessão inválida": o cliente renova o JWT uma vez com o refresh token e
+      repete a chamada. Se a renovação falhar, volta para a tela de entrar.
+    - `403` nas rotas `/safety/...` e em `/aggregated-data` quer dizer que a sessão segura acabou: o
+      cliente faz a saída rápida.
+    - `POST /safety/session` com código errado ou conta bloqueada responde `403`, sempre igual, para não
+      revelar o estado. Não é `401` para o cliente não repetir a chamada (o que contaria duas tentativas).
+    - Senha atual errada em `PUT /account/lock-code` responde `400` com o erro no campo `currentPassword`.
+    - `429` traz `Retry-After`. `503` indica um serviço interno fora do ar (exceto em `/aggregated-data`,
+      que responde parcial).
+
+    **Convenções:** JSON em camelCase; datas ISO 8601 em UTC; IDs em UUID v7 (as notas usam o ObjectId do
+    MongoDB); erros em `application/problem+json` (RFC 9457) com `code`; `X-Correlation-Id` em todas as
+    respostas.
+servers:
+  - url: http://localhost:3000
+    description: Máquina local
+  - url: http://localhost:4010
+    description: Mock (Prism)
+tags:
+  - name: auth
+    description: Cadastro, login e sessão
+  - name: oidc
+    description: Metadados para o validate-jwt do API Management
+  - name: account
+    description: Conta e código de bloqueio do app
+  - name: notes
+    description: Notas da fachada
+  - name: safety-session
+    description: Desbloqueio da área de segurança
+  - name: dashboard
+    description: Painel agregado
+  - name: contacts
+    description: Rede de apoio
+  - name: alert-settings
+    description: Mensagem de aviso
+  - name: check-ins
+    description: Check-in "cheguei bem"
+  - name: help-requests
+    description: Pedidos de ajuda e Teste seguro
+  - name: invitations
+    description: Página pública do convite
+  - name: health
+    description: Situação do serviço
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Situação do serviço
+      security: []
+      responses:
+        '200':
+          description: Serviço no ar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: ghosty-bff
+                    time: '2026-11-06T22:10:00Z'
+
+  # ---------------------------------------------------------------- Autenticação
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Cria a conta e já entra
+      description: Cria a conta no `safety-service`, cria 3 notas de exemplo para a fachada parecer usada e devolve a sessão.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              maria:
+                value:
+                  displayName: Maria
+                  email: maria.exemplo@example.com
+                  password: uma-senha-longa-de-exemplo
+      responses:
+        '201':
+          description: Conta criada e sessão aberta
+          headers:
+            Location:
+              description: A conta criada
+              schema:
+                type: string
+              example: /account
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                session:
+                  $ref: '#/components/examples/AuthSessionNew'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '409':
+          $ref: '#/components/responses/EmailInUse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Entra com e-mail e senha
+      description: Limite de 5 tentativas por minuto por IP. E-mail inexistente e senha errada recebem a mesma resposta.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              maria:
+                value:
+                  email: maria.exemplo@example.com
+                  password: uma-senha-longa-de-exemplo
+      responses:
+        '200':
+          description: Sessão aberta
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                session:
+                  $ref: '#/components/examples/AuthSession'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshSession
+      summary: Renova a sessão
+      description: Troca o refresh token por um novo (rotação) e devolve um JWT novo. O refresh token usado deixa de valer.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              refresh:
+                value:
+                  refreshToken: FtFqsasltdyRGJ0yixDYbKQYOu0lShYtzV_IMr6M3ik
+      responses:
+        '200':
+          description: Sessão renovada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+              examples:
+                session:
+                  $ref: '#/components/examples/AuthSessionRefreshed'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sai da conta
+      description: Revoga o refresh token. É idempotente.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              logout:
+                value:
+                  refreshToken: F4kRweJ1MAVVYiqsrKCSvpHc_MgytYRyOmwfwQHSNoo
+      responses:
+        '204':
+          description: Sessão encerrada
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /.well-known/openid-configuration:
+    get:
+      tags: [oidc]
+      operationId: getOpenIdConfiguration
+      summary: Metadados do emissor do JWT
+      description: Lido pelo `validate-jwt` do API Management. Os nomes dos campos seguem o padrão OpenID (snake_case).
+      security: []
+      responses:
+        '200':
+          description: Metadados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenIdConfiguration'
+              examples:
+                local:
+                  value:
+                    issuer: http://localhost:3000
+                    jwks_uri: http://localhost:3000/.well-known/jwks.json
+                    id_token_signing_alg_values_supported: [RS256]
+                    response_types_supported: [token]
+                    subject_types_supported: [public]
+  /.well-known/jwks.json:
+    get:
+      tags: [oidc]
+      operationId: getJwks
+      summary: Chaves públicas do JWT
+      security: []
+      responses:
+        '200':
+          description: JWKS com a chave atual (o `kid` vem do cabeçalho do JWT)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+              examples:
+                keys:
+                  value:
+                    keys:
+                      - kty: RSA
+                        use: sig
+                        alg: RS256
+                        kid: 2026-11
+                        n: 0q8DHzTmB-4-p_egXONUGDFth7ivaQHZTCYCdDMCCJRkuzEilYLpq9MebwUYRI-n099qWJzXfphewAuoUSOkq25UO9wxIqdQX3ujbEcMniG-D9hUPqLjWk-_ZeQwJleaA2LlU_PmC1dWiwEnzMaYwr-2rQCnCNnmYCyCJf-qqdX8-5ybBlnHwSLsKOQvOX5oZwQjvXmGOd3vThj8_xLhc2b2H7UlPLRdU9L7rOc3cHutbqgUv8TVuUhsPR5pA6BNcF6uQWitIdjGRKj8DScIaEf7smuHO3HPf3k9eqo4i4harpOsUX4aLAm-_IJQviWDiBB_sG2k8Y9g9MZM7ciCow
+                        e: AQAB
+
+  # ---------------------------------------------------------------- Conta
+  /account:
+    get:
+      tags: [account]
+      operationId: getAccount
+      summary: Dados da conta
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: A conta
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                maria:
+                  $ref: '#/components/examples/Account'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [account]
+      operationId: updateAccount
+      summary: Altera o nome
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+            examples:
+              rename:
+                value:
+                  displayName: Maria Silva
+      responses:
+        '200':
+          description: Conta atualizada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                renamed:
+                  value:
+                    id: 01a15965-b480-79af-a113-29b2fc82e5ef
+                    email: maria.exemplo@example.com
+                    displayName: Maria Silva
+                    secretCodeSet: true
+                    createdAt: '2026-10-20T13:00:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [account]
+      operationId: deleteAccount
+      summary: Exclui a conta
+      description: Apaga as notas no `notes-service` e a conta (em cascata) no `safety-service`. Também revoga as sessões.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '204':
+          description: Conta excluída
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /account/lock-code:
+    put:
+      tags: [account]
+      operationId: setLockCode
+      summary: Define o código de bloqueio do app
+      description: |
+        Para quem olha, é o PIN do app de notas. Por dentro, é o código secreto que abre a área de segurança.
+        Exige a senha atual: se ela estiver errada, responde 400 com o erro em `currentPassword`.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetLockCodeRequest'
+            examples:
+              set:
+                value:
+                  currentPassword: uma-senha-longa-de-exemplo
+                  code: '482915'
+      responses:
+        '204':
+          description: Código definido
+        '400':
+          $ref: '#/components/responses/LockCodeInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Notas
+  /notes:
+    get:
+      tags: [notes]
+      operationId: listNotes
+      summary: Lista as notas
+      description: Fixadas primeiro, depois `updatedAt` decrescente.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: archived
+          in: query
+          schema:
+            type: boolean
+            default: false
+          example: false
+        - name: label
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 30
+          example: casa
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+          example: mercado
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de notas
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotePage'
+              examples:
+                page:
+                  $ref: '#/components/examples/NotePage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [notes]
+      operationId: createNote
+      summary: Cria uma nota
+      description: Precisa de título ou conteúdo. Nota `text` usa `body`; nota `checklist` usa `items`.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteRequest'
+            examples:
+              checklist:
+                value:
+                  kind: checklist
+                  title: Lista do mercado
+                  items:
+                    - text: pão
+                    - text: leite
+                  color: yellow
+                  labels: [casa]
+                  pinned: true
+              text:
+                value:
+                  kind: text
+                  title: Dentista quinta 14h
+                  body: Levar a carteirinha do convênio.
+                  reminderAt: '2026-11-12T17:00:00Z'
+      responses:
+        '201':
+          description: Nota criada
+          headers:
+            Location:
+              description: A nota criada
+              schema:
+                type: string
+              example: /notes/6aec6fc05bd053a2e3d78b78
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                checklist:
+                  $ref: '#/components/examples/ChecklistNote'
+                text:
+                  $ref: '#/components/examples/TextNote'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notes/{noteId}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [notes]
+      operationId: getNote
+      summary: Busca uma nota
+      responses:
+        '200':
+          description: A nota
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                checklist:
+                  $ref: '#/components/examples/ChecklistNote'
+                text:
+                  $ref: '#/components/examples/TextNote'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [notes]
+      operationId: updateNote
+      summary: Salva a nota inteira
+      description: Exige a `version` lida. Versão antiga responde 409 `VERSION_CONFLICT`, e o front recarrega a nota.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+            examples:
+              save:
+                value:
+                  version: 1
+                  kind: checklist
+                  title: Lista do mercado
+                  items:
+                    - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+                      text: pão
+                      done: true
+                    - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+                      text: leite
+                      done: false
+                  color: yellow
+                  labels: [casa]
+                  pinned: true
+                  archived: false
+                  reminderAt: null
+      responses:
+        '200':
+          description: Nota salva
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                saved:
+                  $ref: '#/components/examples/ChecklistNoteSaved'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/VersionConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [notes]
+      operationId: patchNote
+      summary: Altera campos da nota
+      description: |
+        Fixar, arquivar, cor, etiquetas, lembrete, título, marcar um item ou converter o tipo
+        (`kind`, preservando o texto). A `version` é opcional; se vier, é conferida.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchNoteRequest'
+            examples:
+              checkItem:
+                value:
+                  item:
+                    id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+                    done: true
+              archive:
+                value:
+                  archived: true
+      responses:
+        '200':
+          description: Nota alterada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                saved:
+                  $ref: '#/components/examples/ChecklistNoteSaved'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/VersionConflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [notes]
+      operationId: deleteNote
+      summary: Apaga a nota
+      responses:
+        '204':
+          description: Nota apagada
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Sessão segura
+  /safety/session:
+    post:
+      tags: [safety-session]
+      operationId: unlockSafety
+      summary: Abre a área de segurança com o código
+      description: |
+        O shell chama esta rota quando a busca recebe só dígitos (6 a 8) e a pessoa aperta Enter.
+        Código certo: devolve o token da sessão segura e a URL do remote `safety`.
+        Código errado ou conta bloqueada: **403, sempre igual**; o shell não mostra nada além de
+        "Nenhuma nota encontrada". O cliente não deve repetir esta chamada automaticamente.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnlockSafetyRequest'
+            examples:
+              code:
+                value:
+                  code: '482915'
+      responses:
+        '200':
+          description: Sessão segura aberta
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetySession'
+              examples:
+                unlocked:
+                  value:
+                    safetyToken: eyJhbGciOiJSUzI1NiIsImtpZCI6IjIwMjYtMTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJhdWQiOiJub3Rlcy13ZWIiLCJzdWIiOiIwMWExNTk2NS1iNDgwLTc5YWYtYTExMy0yOWIyZmM4MmU1ZWYiLCJzY29wZSI6InNhZmV0eSIsImp0aSI6IjAxYTFiMmU5LTYyOTAtN2YwMC04YTExLTBiMWMyZDNlNGY1MCIsImlhdCI6MTc5NDAwMzAwMCwiZXhwIjoxNzk0MDAzNjAwfQ.YXNzaW5hdHVyYS1kZS1leGVtcGxvLW5hby12YWxpZGE
+                    expiresIn: 600
+                    remoteUrl: http://localhost:5175/remoteEntry.js
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/UnlockRefused'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [safety-session]
+      operationId: lockSafety
+      summary: Fecha a área de segurança (saída rápida)
+      description: Revoga o token da sessão segura enviado em `X-Safety-Token`. Responde 204 mesmo se o token já tiver vencido.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: X-Safety-Token
+          in: header
+          required: false
+          description: Token a revogar
+          schema:
+            type: string
+          example: eyJhbGciOiJSUzI1NiIsImtpZCI6IjIwMjYtMTEiLCJ0eXAiOiJKV1QifQ.e30.YXNzaW5hdHVyYQ
+      responses:
+        '204':
+          description: Sessão segura encerrada
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Painel
+  /aggregated-data:
+    get:
+      tags: [dashboard]
+      operationId: getAggregatedData
+      summary: Painel da área de segurança em um único JSON
+      description: |
+        Junta, em paralelo, o resumo das notas (`notes-service`), o resumo da segurança (`safety-service`)
+        e a prontidão calculada pela Function. Cada chamada tem 3 segundos de limite.
+
+        - Uma fonte fora do ar não derruba a resposta: o bloco dela vem `null` e `sources.<fonte>` vem
+          `unavailable`. A resposta continua 200.
+        - Se a Function falhar, o BFF calcula uma prontidão mínima e marca `sources.readiness = "fallback"`.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: geo
+          in: query
+          description: Situação da permissão de localização no navegador (`navigator.permissions`)
+          schema:
+            type: string
+            enum: [granted, denied, prompt, unknown]
+            default: unknown
+          example: granted
+      responses:
+        '200':
+          description: Painel completo ou parcial
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregatedData'
+              examples:
+                complete:
+                  $ref: '#/components/examples/AggregatedComplete'
+                notesUnavailable:
+                  $ref: '#/components/examples/AggregatedNotesUnavailable'
+                readinessFallback:
+                  $ref: '#/components/examples/AggregatedReadinessFallback'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Rede de apoio
+  /safety/contacts:
+    get:
+      tags: [contacts]
+      operationId: listContacts
+      summary: Lista a rede de apoio, na ordem de aviso
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Contatos ordenados por `position`
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactList'
+              examples:
+                network:
+                  $ref: '#/components/examples/ContactList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [contacts]
+      operationId: addContact
+      summary: Adiciona um contato (só o apelido)
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+            examples:
+              carla:
+                value:
+                  nickname: Carla
+      responses:
+        '201':
+          description: Contato criado como `pending`
+          headers:
+            Location:
+              description: O contato criado
+              schema:
+                type: string
+              example: /safety/contacts/01a1596c-1d20-7fdb-b978-4d0ae408d877
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                carla:
+                  $ref: '#/components/examples/ContactCarlaNew'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '409':
+          $ref: '#/components/responses/TooManyContacts'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/contacts/order:
+    put:
+      tags: [contacts]
+      operationId: reorderContacts
+      summary: Define a ordem de aviso
+      description: Envia todos os ids da rede, na nova ordem.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderContactsRequest'
+            examples:
+              betoFirst:
+                value:
+                  contactIds:
+                    - 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                    - 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                    - 01a1596c-1d20-7fdb-b978-4d0ae408d877
+      responses:
+        '200':
+          description: Rede na nova ordem
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactList'
+              examples:
+                network:
+                  $ref: '#/components/examples/ContactListReordered'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/contacts/{contactId}:
+    parameters:
+      - $ref: '#/components/parameters/ContactId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [contacts]
+      operationId: getContact
+      summary: Busca um contato
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      responses:
+        '200':
+          description: O contato
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                ana:
+                  $ref: '#/components/examples/ContactAna'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [contacts]
+      operationId: updateContact
+      summary: Altera o apelido
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+            examples:
+              rename:
+                value:
+                  nickname: Aninha
+      responses:
+        '200':
+          description: Contato atualizado
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                renamed:
+                  value:
+                    id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                    nickname: Aninha
+                    position: 1
+                    status: confirmed
+                    channel: telegram
+                    inviteExpiresAt: '2026-10-23T13:10:00Z'
+                    respondedAt: '2026-10-20T14:02:00Z'
+                    createdAt: '2026-10-20T13:05:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [contacts]
+      operationId: removeContact
+      summary: Remove o contato
+      description: O link do convite dele deixa de funcionar.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      responses:
+        '204':
+          description: Contato removido
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/contacts/{contactId}/invitation:
+    post:
+      tags: [contacts]
+      operationId: createInvitation
+      summary: Gera o link de convite
+      description: Vale 72 horas para a resposta. Um convite novo invalida o anterior e volta o contato para `pending`.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/ContactId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '201':
+          description: Convite gerado. O link só aparece nesta resposta.
+          headers:
+            Location:
+              description: Caminho público do convite
+              schema:
+                type: string
+              example: /invitations/jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+              examples:
+                carla:
+                  value:
+                    contactId: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+                    token: jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+                    inviteUrl: http://localhost:5173/c/jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+                    telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+                    expiresAt: '2026-11-09T22:10:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Mensagem
+  /safety/alert-settings:
+    get:
+      tags: [alert-settings]
+      operationId: getAlertSettings
+      summary: Mensagem de aviso e preferências
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: As configurações
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSettings'
+              examples:
+                reviewed:
+                  $ref: '#/components/examples/AlertSettings'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [alert-settings]
+      operationId: updateAlertSettings
+      summary: Salva a mensagem e as preferências
+      description: Marca a mensagem como revisada.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAlertSettingsRequest'
+            examples:
+              save:
+                value:
+                  messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                  includeLocation: true
+                  countdownSeconds: 10
+                  checkInToleranceMinutes: 10
+      responses:
+        '200':
+          description: Configurações salvas
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSettings'
+              examples:
+                saved:
+                  $ref: '#/components/examples/AlertSettings'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/message-preview:
+    post:
+      tags: [alert-settings]
+      operationId: previewMessage
+      summary: Prévia da mensagem
+      description: |
+        Encaminhada à Function. O BFF completa o nome da conta. Sem `template`, usa o modelo salvo; sem
+        `contactNickname`, usa o primeiro contato confirmado (ou "contato"). O editor chama com debounce
+        de 500 ms e bloqueia o salvar quando `withinLimit` é `false`.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessagePreviewRequest'
+            examples:
+              editing:
+                value:
+                  template: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                  contactNickname: Ana
+                  location:
+                    lat: -23.5505
+                    lng: -46.6333
+                    accuracyMeters: 20
+              saved:
+                summary: Modelo salvo, primeiro contato
+                value: {}
+      responses:
+        '200':
+          description: Mensagem montada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePreview'
+              examples:
+                withLocation:
+                  value:
+                    text: 'Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+                    characters: 184
+                    limit: 4096
+                    withinLimit: true
+                    mapUrl: https://www.google.com/maps?q=-23.5505,-46.6333
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Check-ins
+  /safety/check-ins:
+    get:
+      tags: [check-ins]
+      operationId: listCheckIns
+      summary: Lista os check-ins
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/CheckInStatus'
+          example: active
+        - $ref: '#/components/parameters/ModeFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de check-ins, do mais novo para o mais antigo
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckInPage'
+              examples:
+                active:
+                  value:
+                    items:
+                      - id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                        destination: Casa
+                        dueAt: '2026-11-07T02:30:00Z'
+                        toleranceMinutes: 10
+                        deadlineAt: '2026-11-07T02:40:00Z'
+                        status: active
+                        mode: real
+                        version: 1
+                        createdAt: '2026-11-06T22:00:00Z'
+                        confirmedAt: null
+                        expiredAt: null
+                        helpRequestId: null
+                    page: 1
+                    pageSize: 20
+                    total: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [check-ins]
+      operationId: startCheckIn
+      summary: Inicia um check-in
+      description: |
+        Prazo (`dueAt` + tolerância) entre 1 minuto e 24 horas. Um check-in ativo por modo.
+        A mesma `Idempotency-Key` devolve o mesmo check-in.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartCheckInRequest'
+            examples:
+              home:
+                value:
+                  destination: Casa
+                  dueAt: '2026-11-07T02:30:00Z'
+                  toleranceMinutes: 10
+                  mode: real
+      responses:
+        '201':
+          description: Check-in ativo
+          headers:
+            Location:
+              description: O check-in criado
+              schema:
+                type: string
+              example: /safety/check-ins/01a1b2e0-3300-7abf-90bf-07d69a5799b9
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                active:
+                  $ref: '#/components/examples/CheckInActive'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '409':
+          $ref: '#/components/responses/CheckInAlreadyActive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/check-ins/{checkInId}:
+    parameters:
+      - $ref: '#/components/parameters/CheckInId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [check-ins]
+      operationId: getCheckIn
+      summary: Busca um check-in
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      responses:
+        '200':
+          description: O check-in
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                active:
+                  $ref: '#/components/examples/CheckInActive'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [check-ins]
+      operationId: extendCheckIn
+      summary: Estende o prazo
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtendCheckInRequest'
+            examples:
+              plus30:
+                value:
+                  dueAt: '2026-11-07T03:00:00Z'
+      responses:
+        '200':
+          description: Check-in estendido, com `version` nova
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                extended:
+                  value:
+                    id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                    destination: Casa
+                    dueAt: '2026-11-07T03:00:00Z'
+                    toleranceMinutes: 10
+                    deadlineAt: '2026-11-07T03:10:00Z'
+                    status: active
+                    mode: real
+                    version: 2
+                    createdAt: '2026-11-06T22:00:00Z'
+                    confirmedAt: null
+                    expiredAt: null
+                    helpRequestId: null
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [check-ins]
+      operationId: cancelCheckIn
+      summary: Cancela o check-in
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      responses:
+        '204':
+          description: Check-in cancelado
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/check-ins/{checkInId}/confirm:
+    post:
+      tags: [check-ins]
+      operationId: confirmArrival
+      summary: Cheguei bem
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/CheckInId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Check-in confirmado
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                confirmed:
+                  value:
+                    id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                    destination: Casa
+                    dueAt: '2026-11-07T02:30:00Z'
+                    toleranceMinutes: 10
+                    deadlineAt: '2026-11-07T02:40:00Z'
+                    status: confirmed
+                    mode: real
+                    version: 1
+                    createdAt: '2026-11-06T22:00:00Z'
+                    confirmedAt: '2026-11-07T02:12:00Z'
+                    expiredAt: null
+                    helpRequestId: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Pedidos de ajuda
+  /safety/help-requests:
+    get:
+      tags: [help-requests]
+      operationId: listHelpRequests
+      summary: Lista os pedidos de ajuda
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+        - $ref: '#/components/parameters/ModeFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de pedidos, do mais novo para o mais antigo
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequestPage'
+              examples:
+                page:
+                  value:
+                    items:
+                      - id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                        origin: button
+                        mode: real
+                        status: dispatched
+                        createdAt: '2026-11-06T22:10:03Z'
+                        dispatchedAt: '2026-11-06T22:10:06Z'
+                    page: 1
+                    pageSize: 20
+                    total: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [help-requests]
+      operationId: triggerHelpRequest
+      summary: Pede ajuda (ou faz o Teste seguro)
+      description: |
+        Responde 202 na hora: o envio acontece depois. O front consulta o `Location` a cada 2 segundos
+        até `status` sair de `triggered`, e depois de 60 segundos mostra "ainda processando".
+        `mode: test` nunca envia nada. A mesma `Idempotency-Key` devolve o mesmo pedido.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerHelpRequestRequest'
+            examples:
+              real:
+                value:
+                  mode: real
+                  location:
+                    lat: -23.5505
+                    lng: -46.6333
+                    accuracyMeters: 20
+              safeTest:
+                value:
+                  mode: test
+      responses:
+        '202':
+          description: Pedido aceito
+          headers:
+            Location:
+              description: O pedido, para acompanhar o envio
+              schema:
+                type: string
+              example: /safety/help-requests/01a1b2e9-6678-7ead-96cd-77eeda864fb3
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                triggered:
+                  $ref: '#/components/examples/HelpRequestTriggered'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/help-requests/{helpRequestId}:
+    get:
+      tags: [help-requests]
+      operationId: getHelpRequest
+      summary: Busca o pedido, com a linha do tempo
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/HelpRequestId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: O pedido e os passos do envio
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                dispatched:
+                  $ref: '#/components/examples/HelpRequestDispatched'
+                safeTest:
+                  $ref: '#/components/examples/HelpRequestSafeTest'
+                triggered:
+                  $ref: '#/components/examples/HelpRequestTriggered'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /safety/help-requests/{helpRequestId}/cancel:
+    post:
+      tags: [help-requests]
+      operationId: cancelHelpRequest
+      summary: Foi engano
+      description: Só registra o cancelamento. O aviso já enviado não é desfeito.
+      security:
+        - bearerAuth: []
+          safetyToken: []
+      parameters:
+        - $ref: '#/components/parameters/HelpRequestId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Pedido cancelado
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                cancelled:
+                  value:
+                    id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                    origin: button
+                    mode: real
+                    status: cancelled
+                    location:
+                      lat: -23.5505
+                      lng: -46.6333
+                      accuracyMeters: 20
+                    checkInId: null
+                    createdAt: '2026-11-06T22:10:03Z'
+                    dispatchedAt: '2026-11-06T22:10:06Z'
+                    steps: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/SafetySessionRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/HelpRequestNotCancellable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Convite (público)
+  /invitations/{token}:
+    get:
+      tags: [invitations]
+      operationId: getInvitation
+      summary: Abre a página do convite
+      description: |
+        Usada pela rota `/c/:token` do shell. Com token válido, devolve também `remoteUrl`, para o shell
+        carregar o `safety/Invite`. Token desconhecido: 404 (a página mostra uma tela neutra). Vencido: 410.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Dados do convite
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPage'
+              examples:
+                pending:
+                  $ref: '#/components/examples/InvitationPagePending'
+                acceptedWeb:
+                  $ref: '#/components/examples/InvitationPageWeb'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/accept:
+    post:
+      tags: [invitations]
+      operationId: acceptInvitation
+      summary: Aceita o convite
+      description: |
+        `web`: o contato vira `confirmed` na hora, e a mesma página passa a mostrar os avisos.
+        `telegram`: devolve o link `t.me`; o contato só vira `confirmed` quando tocar em Iniciar no bot.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitationRequest'
+            examples:
+              web:
+                value:
+                  channel: web
+              telegram:
+                value:
+                  channel: telegram
+      responses:
+        '200':
+          description: Convite aceito (web) ou link do Telegram (telegram)
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPage'
+              examples:
+                web:
+                  $ref: '#/components/examples/InvitationPageWeb'
+                telegram:
+                  $ref: '#/components/examples/InvitationPageTelegramChosen'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvitationAlreadyAnswered'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/decline:
+    post:
+      tags: [invitations]
+      operationId: declineInvitation
+      summary: Recusa o convite
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Convite recusado
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPage'
+              examples:
+                declined:
+                  value:
+                    inviterDisplayName: Maria
+                    status: declined
+                    channel: null
+                    expiresAt: '2026-11-09T22:10:00Z'
+                    respondable: false
+                    telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+                    remoteUrl: http://localhost:5175/remoteEntry.js
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvitationAlreadyAnswered'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/alerts:
+    get:
+      tags: [invitations]
+      operationId: getInvitationAlerts
+      summary: Avisos recebidos pelo contato do canal web
+      description: A página do convite consulta a cada 5 segundos, com `since`. Só para contatos confirmados no canal web.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          example: '2026-11-06T22:00:00Z'
+      responses:
+        '200':
+          description: Avisos publicados para o contato
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationAlerts'
+              examples:
+                oneAlert:
+                  value:
+                    items:
+                      - helpRequestId: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                        message: 'Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+                        publishedAt: '2026-11-06T22:10:06Z'
+                none:
+                  value:
+                    items: []
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/UpstreamUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT de acesso (RS256, 15 minutos)
+    safetyToken:
+      type: apiKey
+      in: header
+      name: X-Safety-Token
+      description: Token da sessão segura (10 minutos, `scope=safety`). Só em memória.
+  parameters:
+    XCorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Identificador da operação. O API Management gera um se não vier.
+      schema:
+        type: string
+        maxLength: 100
+      example: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Gerada pelo front a cada tentativa nova (`crypto.randomUUID()`). Vale por 24 horas.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+      example: 9b2f6c1e-3d4a-4f5b-8c7d-6e5f4a3b2c1d
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{24}$'
+      example: 6aec6fc05bd053a2e3d78b78
+    ContactId:
+      name: contactId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+    CheckInId:
+      name: checkInId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+    HelpRequestId:
+      name: helpRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{43}$'
+      example: jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+    ModeFilter:
+      name: mode
+      in: query
+      schema:
+        type: string
+        enum: [real, test]
+      example: real
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+  headers:
+    XCorrelationId:
+      description: O identificador da operação (o recebido ou o gerado)
+      schema:
+        type: string
+      example: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    RetryAfter:
+      description: Segundos até poder tentar de novo
+      schema:
+        type: integer
+        minimum: 1
+      example: 42
+  schemas:
+    Health:
+      type: object
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+        time:
+          type: string
+          format: date-time
+    Uuid:
+      type: string
+      format: uuid
+    OpaqueToken:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{43}$'
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 80
+    Mode:
+      type: string
+      enum: [real, test]
+
+    # Autenticação
+    RegisterRequest:
+      type: object
+      required: [displayName, email, password]
+      properties:
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        email:
+          $ref: '#/components/schemas/Email'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          $ref: '#/components/schemas/Email'
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          $ref: '#/components/schemas/OpaqueToken'
+    AuthSession:
+      type: object
+      required: [accessToken, tokenType, expiresIn, refreshToken, refreshExpiresAt, user]
+      properties:
+        accessToken:
+          type: string
+          description: JWT RS256 (`iss` = URL do BFF, `aud` = `notes-web`, `sub` = id da conta)
+        tokenType:
+          type: string
+          enum: [Bearer]
+        expiresIn:
+          type: integer
+          description: Segundos até o JWT vencer
+          example: 900
+        refreshToken:
+          $ref: '#/components/schemas/OpaqueToken'
+        refreshExpiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/SessionUser'
+    SessionUser:
+      type: object
+      required: [id, displayName, email]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        email:
+          $ref: '#/components/schemas/Email'
+    OpenIdConfiguration:
+      type: object
+      required: [issuer, jwks_uri, id_token_signing_alg_values_supported]
+      properties:
+        issuer:
+          type: string
+          format: uri
+        jwks_uri:
+          type: string
+          format: uri
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+    Jwks:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            required: [kty, use, alg, kid, n, e]
+            properties:
+              kty:
+                type: string
+                enum: [RSA]
+              use:
+                type: string
+                enum: [sig]
+              alg:
+                type: string
+                enum: [RS256]
+              kid:
+                type: string
+              n:
+                type: string
+              e:
+                type: string
+
+    # Conta
+    Account:
+      type: object
+      required: [id, email, displayName, secretCodeSet, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        email:
+          $ref: '#/components/schemas/Email'
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        secretCodeSet:
+          type: boolean
+          description: Se o código de bloqueio já foi definido
+        createdAt:
+          type: string
+          format: date-time
+    UpdateAccountRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+    SetLockCodeRequest:
+      type: object
+      required: [currentPassword, code]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+        code:
+          type: string
+          pattern: '^[0-9]{6,8}$'
+          description: 6 a 8 dígitos
+
+    # Notas
+    NoteKind:
+      type: string
+      enum: [text, checklist]
+    NoteColor:
+      type: string
+      enum: [default, yellow, green, blue, pink, gray]
+    Label:
+      type: string
+      minLength: 1
+      maxLength: 30
+    ChecklistItem:
+      type: object
+      required: [id, text, done]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        done:
+          type: boolean
+    ChecklistItemInput:
+      type: object
+      required: [text]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        done:
+          type: boolean
+          default: false
+    Note:
+      type: object
+      required: [id, kind, title, color, labels, pinned, archived, reminderAt, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9a-f]{24}$'
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          type: string
+          maxLength: 200
+        body:
+          type: string
+          maxLength: 20000
+          description: Só em notas `text`
+        items:
+          type: array
+          maxItems: 200
+          description: Só em notas `checklist`
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+    CreateNoteRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          type: string
+          maxLength: 200
+        body:
+          type: string
+          maxLength: 20000
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ChecklistItemInput'
+        color:
+          allOf:
+            - $ref: '#/components/schemas/NoteColor'
+          default: default
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+          default: false
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateNoteRequest:
+      type: object
+      required: [version, kind, title, color, labels, pinned, archived, reminderAt]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          type: string
+          maxLength: 200
+        body:
+          type: string
+          maxLength: 20000
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ChecklistItemInput'
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+    PatchNoteRequest:
+      type: object
+      minProperties: 1
+      properties:
+        version:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 200
+        kind:
+          allOf:
+            - $ref: '#/components/schemas/NoteKind'
+          description: Converte o tipo preservando o texto
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+        item:
+          type: object
+          required: [id, done]
+          properties:
+            id:
+              $ref: '#/components/schemas/Uuid'
+            done:
+              type: boolean
+    NotePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    # Sessão segura
+    UnlockSafetyRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          pattern: '^[0-9]{6,8}$'
+    SafetySession:
+      type: object
+      required: [safetyToken, expiresIn, remoteUrl]
+      properties:
+        safetyToken:
+          type: string
+          description: JWT `scope=safety`, renovado a cada uso até no máximo 30 minutos
+        expiresIn:
+          type: integer
+          example: 600
+        remoteUrl:
+          type: string
+          format: uri
+          description: '`remoteEntry.js` do remote `safety` (`SAFETY_REMOTE_URL`)'
+
+    # Painel
+    ContactSummary:
+      type: object
+      required: [id, nickname, position, status, channel]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        nickname:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+    FacadeBlock:
+      type: object
+      nullable: true
+      description: '`null` quando o `notes-service` não respondeu'
+      required: [totalNotes, pinned, archived, updatedLast14Days, remindersToday]
+      properties:
+        totalNotes:
+          type: integer
+          minimum: 0
+        pinned:
+          type: integer
+          minimum: 0
+        archived:
+          type: integer
+          minimum: 0
+        updatedLast14Days:
+          type: integer
+          minimum: 0
+        remindersToday:
+          type: integer
+          minimum: 0
+    SafetyBlock:
+      type: object
+      nullable: true
+      description: '`null` quando o `safety-service` não respondeu'
+      required: [network, alertSettings, activeCheckIn, lastTest]
+      properties:
+        network:
+          type: object
+          required: [total, confirmed, pending, declined, contacts]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            confirmed:
+              type: integer
+              minimum: 0
+            pending:
+              type: integer
+              minimum: 0
+            declined:
+              type: integer
+              minimum: 0
+            contacts:
+              type: array
+              items:
+                $ref: '#/components/schemas/ContactSummary'
+        alertSettings:
+          type: object
+          required: [includeLocation, countdownSeconds, reviewed]
+          properties:
+            includeLocation:
+              type: boolean
+            countdownSeconds:
+              type: integer
+              minimum: 5
+              maximum: 60
+            reviewed:
+              type: boolean
+        activeCheckIn:
+          $ref: '#/components/schemas/ActiveCheckIn'
+        lastTest:
+          $ref: '#/components/schemas/LastTest'
+    ActiveCheckIn:
+      type: object
+      nullable: true
+      required: [id, destination, dueAt, deadlineAt, status]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        destination:
+          type: string
+        dueAt:
+          type: string
+          format: date-time
+        deadlineAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active]
+    LastTest:
+      type: object
+      nullable: true
+      required: [helpRequestId, at, outcome]
+      properties:
+        helpRequestId:
+          $ref: '#/components/schemas/Uuid'
+        at:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum: [ok, failed, pending]
+    ReadinessItem:
+      type: object
+      required: [id, ok, weight, text, recommendation]
+      properties:
+        id:
+          type: string
+          enum:
+            - network-confirmed
+            - network-two-confirmed
+            - message-reviewed
+            - location-permission
+            - recent-test
+            - facade-usage
+            - secret-code
+        ok:
+          type: boolean
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 100
+        text:
+          type: string
+        recommendation:
+          type: string
+          nullable: true
+    ReadinessBlock:
+      type: object
+      required: [score, level, items, messagePreview]
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        level:
+          type: string
+          enum: [ready, almost, attention]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReadinessItem'
+        messagePreview:
+          $ref: '#/components/schemas/ReadinessMessagePreview'
+    ReadinessMessagePreview:
+      type: object
+      nullable: true
+      description: '`null` na prontidão de reserva (`sources.readiness = "fallback"`)'
+      required: [text, characters, limit]
+      properties:
+        text:
+          type: string
+        characters:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          enum: [4096]
+    DisabledFeature:
+      type: object
+      required: [id, title, reason]
+      properties:
+        id:
+          type: string
+          enum: [sms-whatsapp-email, web-push, check-in-push, decoy-code, false-alarm-message]
+        title:
+          type: string
+        reason:
+          type: string
+    AggregatedData:
+      type: object
+      required: [generatedAt, facade, safety, readiness, disabledFeatures, sources]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        facade:
+          $ref: '#/components/schemas/FacadeBlock'
+        safety:
+          $ref: '#/components/schemas/SafetyBlock'
+        readiness:
+          $ref: '#/components/schemas/ReadinessBlock'
+        disabledFeatures:
+          type: array
+          items:
+            $ref: '#/components/schemas/DisabledFeature'
+        sources:
+          type: object
+          required: [notes, safety, readiness]
+          properties:
+            notes:
+              type: string
+              enum: [ok, unavailable]
+            safety:
+              type: string
+              enum: [ok, unavailable]
+            readiness:
+              type: string
+              enum: [ok, fallback]
+
+    # Rede de apoio
+    ContactStatus:
+      type: string
+      enum: [pending, confirmed, declined]
+    Contact:
+      type: object
+      required: [id, nickname, position, status, channel, inviteExpiresAt, respondedAt, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+        position:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+        inviteExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ContactInput:
+      type: object
+      required: [nickname]
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+    ContactList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Contact'
+    ReorderContactsRequest:
+      type: object
+      required: [contactIds]
+      properties:
+        contactIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Uuid'
+    Invitation:
+      type: object
+      required: [contactId, token, inviteUrl, telegramUrl, expiresAt]
+      properties:
+        contactId:
+          $ref: '#/components/schemas/Uuid'
+        token:
+          $ref: '#/components/schemas/OpaqueToken'
+        inviteUrl:
+          type: string
+          format: uri
+        telegramUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+
+    # Mensagem
+    MessageTemplate:
+      type: string
+      minLength: 1
+      maxLength: 3800
+    AlertSettings:
+      type: object
+      required:
+        [messageTemplate, includeLocation, countdownSeconds, checkInToleranceMinutes, reviewed, reviewedAt]
+      properties:
+        messageTemplate:
+          $ref: '#/components/schemas/MessageTemplate'
+        includeLocation:
+          type: boolean
+        countdownSeconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+        checkInToleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        reviewed:
+          type: boolean
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateAlertSettingsRequest:
+      type: object
+      required: [messageTemplate, includeLocation, countdownSeconds, checkInToleranceMinutes]
+      properties:
+        messageTemplate:
+          $ref: '#/components/schemas/MessageTemplate'
+        includeLocation:
+          type: boolean
+        countdownSeconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+        checkInToleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+    Location:
+      type: object
+      nullable: true
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        accuracyMeters:
+          type: number
+          minimum: 0
+          nullable: true
+    MessagePreviewRequest:
+      type: object
+      properties:
+        template:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Sem este campo, usa o modelo salvo
+        contactNickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+          description: Sem este campo, usa o primeiro contato confirmado
+        location:
+          $ref: '#/components/schemas/Location'
+    MessagePreview:
+      type: object
+      required: [text, characters, limit, withinLimit, mapUrl]
+      properties:
+        text:
+          type: string
+        characters:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          enum: [4096]
+        withinLimit:
+          type: boolean
+        mapUrl:
+          type: string
+          format: uri
+          nullable: true
+
+    # Check-ins
+    CheckInStatus:
+      type: string
+      enum: [active, confirmed, cancelled, expired]
+    CheckIn:
+      type: object
+      required:
+        - id
+        - destination
+        - dueAt
+        - toleranceMinutes
+        - deadlineAt
+        - status
+        - mode
+        - version
+        - createdAt
+        - confirmedAt
+        - expiredAt
+        - helpRequestId
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 120
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        deadlineAt:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/CheckInStatus'
+        mode:
+          $ref: '#/components/schemas/Mode'
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiredAt:
+          type: string
+          format: date-time
+          nullable: true
+        helpRequestId:
+          type: string
+          format: uuid
+          nullable: true
+    StartCheckInRequest:
+      type: object
+      required: [destination, dueAt, mode]
+      properties:
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 120
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        mode:
+          $ref: '#/components/schemas/Mode'
+    ExtendCheckInRequest:
+      type: object
+      required: [dueAt]
+      properties:
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+    CheckInPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckIn'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    # Pedidos de ajuda
+    TriggerHelpRequestRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          $ref: '#/components/schemas/Mode'
+        location:
+          $ref: '#/components/schemas/Location'
+    DeliveryStep:
+      type: object
+      required: [id, stepOrder, contactId, contactNickname, channel, outcome, message, errorCode, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        stepOrder:
+          type: integer
+          minimum: 1
+        contactId:
+          type: string
+          format: uuid
+          nullable: true
+        contactNickname:
+          type: string
+          nullable: true
+        channel:
+          type: string
+          enum: [telegram, web, none]
+        outcome:
+          type: string
+          enum: [sent, published_web, would_send, failed, skipped_unconfirmed, no_contacts]
+        message:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+    HelpRequest:
+      type: object
+      required: [id, origin, mode, status, location, checkInId, createdAt, dispatchedAt, steps]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        origin:
+          type: string
+          enum: [button, check_in]
+        mode:
+          $ref: '#/components/schemas/Mode'
+        status:
+          type: string
+          enum: [triggered, dispatched, cancelled, failed]
+        location:
+          $ref: '#/components/schemas/Location'
+        checkInId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryStep'
+    HelpRequestSummary:
+      type: object
+      required: [id, origin, mode, status, createdAt, dispatchedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        origin:
+          type: string
+          enum: [button, check_in]
+        mode:
+          $ref: '#/components/schemas/Mode'
+        status:
+          type: string
+          enum: [triggered, dispatched, cancelled, failed]
+        createdAt:
+          type: string
+          format: date-time
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+    HelpRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HelpRequestSummary'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+
+    # Convite
+    InvitationPage:
+      type: object
+      required: [inviterDisplayName, status, channel, expiresAt, respondable, telegramUrl, remoteUrl]
+      properties:
+        inviterDisplayName:
+          $ref: '#/components/schemas/DisplayName'
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+        respondable:
+          type: boolean
+        telegramUrl:
+          type: string
+          format: uri
+        remoteUrl:
+          type: string
+          format: uri
+          description: '`remoteEntry.js` do remote `safety`, para o shell carregar o `safety/Invite`'
+    AcceptInvitationRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          type: string
+          enum: [telegram, web]
+    InvitationAlerts:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [helpRequestId, message, publishedAt]
+            properties:
+              helpRequestId:
+                $ref: '#/components/schemas/Uuid'
+              message:
+                type: string
+              publishedAt:
+                type: string
+                format: date-time
+
+    ProblemDetails:
+      type: object
+      description: Erro no formato RFC 9457, com o `code` estável para o cliente decidir o que fazer
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - NOT_FOUND
+            - VERSION_CONFLICT
+            - INVALID_STATE
+            - EMAIL_IN_USE
+            - INVITATION_EXPIRED
+            - RATE_LIMITED
+            - UPSTREAM_UNAVAILABLE
+            - INTERNAL_ERROR
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+  responses:
+    ValidationFailed:
+      description: Corpo ou parâmetros inválidos
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            validation:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                detail: O campo title tem mais de 200 caracteres.
+                instance: /notes
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+                errors:
+                  - field: title
+                    message: máximo de 200 caracteres
+    LockCodeInvalid:
+      description: Código fora do formato, ou senha atual errada
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            wrongPassword:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                instance: /account/lock-code
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+                errors:
+                  - field: currentPassword
+                    message: senha incorreta
+            badCode:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                instance: /account/lock-code
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+                errors:
+                  - field: code
+                    message: use de 6 a 8 dígitos
+    Unauthenticated:
+      description: JWT ausente, inválido ou vencido. O cliente renova a sessão e repete a chamada uma vez.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            unauthenticated:
+              value:
+                type: /errors/unauthenticated
+                title: Não autenticado
+                status: 401
+                code: UNAUTHENTICATED
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvalidCredentials:
+      description: E-mail ou senha errados (a resposta não diz qual)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            invalid:
+              value:
+                type: /errors/unauthenticated
+                title: Não autenticado
+                status: 401
+                code: UNAUTHENTICATED
+                detail: E-mail ou senha incorretos.
+                instance: /auth/login
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    UnlockRefused:
+      description: Código errado ou conta bloqueada. A resposta é sempre igual, sem detalhes.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            refused:
+              value:
+                type: /errors/forbidden
+                title: Acesso negado
+                status: 403
+                code: FORBIDDEN
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    SafetySessionRequired:
+      description: '`X-Safety-Token` ausente, vencido ou revogado. O cliente faz a saída rápida.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            forbidden:
+              value:
+                type: /errors/forbidden
+                title: Acesso negado
+                status: 403
+                code: FORBIDDEN
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    NotFound:
+      description: O recurso não existe ou não é da conta (a resposta não diz qual dos dois)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            notFound:
+              value:
+                type: /errors/not-found
+                title: Não encontrado
+                status: 404
+                code: NOT_FOUND
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    VersionConflict:
+      description: A nota mudou desde a versão enviada. O front recarrega a nota.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            conflict:
+              value:
+                type: /errors/version-conflict
+                title: Versão desatualizada
+                status: 409
+                code: VERSION_CONFLICT
+                detail: A nota foi alterada depois da versão 1. Versão atual 2.
+                instance: /notes/6aec6fc05bd053a2e3d78b78
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    EmailInUse:
+      description: Já existe uma conta com este e-mail
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            emailInUse:
+              value:
+                type: /errors/email-in-use
+                title: E-mail já cadastrado
+                status: 409
+                code: EMAIL_IN_USE
+                instance: /auth/register
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    TooManyContacts:
+      description: A rede já tem 10 contatos
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            limit:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: A rede de apoio já tem 10 contatos.
+                instance: /safety/contacts
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    CheckInAlreadyActive:
+      description: Já existe um check-in ativo neste modo
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            active:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: Já existe um check-in ativo.
+                instance: /safety/check-ins
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    CheckInNotActive:
+      description: O check-in não está mais ativo
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            expired:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: O check-in já venceu.
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    HelpRequestNotCancellable:
+      description: O pedido já foi cancelado ou falhou
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            cancelled:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: O pedido já foi cancelado.
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvitationAlreadyAnswered:
+      description: O convite já foi respondido
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            answered:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: Este convite já foi respondido.
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvitationExpired:
+      description: O convite venceu sem resposta
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            expired:
+              value:
+                type: /errors/invitation-expired
+                title: Convite vencido
+                status: 410
+                code: INVITATION_EXPIRED
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    RateLimited:
+      description: Limite de requisições atingido
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            limited:
+              value:
+                type: /errors/rate-limited
+                title: Muitas requisições
+                status: 429
+                code: RATE_LIMITED
+                detail: Tente de novo em alguns segundos.
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    UpstreamUnavailable:
+      description: Um serviço interno não respondeu a tempo
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            unavailable:
+              value:
+                type: /errors/upstream-unavailable
+                title: Serviço indisponível
+                status: 503
+                code: UPSTREAM_UNAVAILABLE
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InternalError:
+      description: Erro inesperado, sem detalhes
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            internal:
+              value:
+                type: /errors/internal-error
+                title: Erro interno
+                status: 500
+                code: INTERNAL_ERROR
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+  examples:
+    AuthSession:
+      summary: Sessão aberta
+      value:
+        accessToken: eyJhbGciOiJSUzI1NiIsImtpZCI6IjIwMjYtMTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJhdWQiOiJub3Rlcy13ZWIiLCJzdWIiOiIwMWExNTk2NS1iNDgwLTc5YWYtYTExMy0yOWIyZmM4MmU1ZWYiLCJpYXQiOjE3OTQwMDMwMDAsImV4cCI6MTc5NDAwMzkwMH0.YXNzaW5hdHVyYS1kZS1leGVtcGxvLW5hby12YWxpZGE
+        tokenType: Bearer
+        expiresIn: 900
+        refreshToken: FtFqsasltdyRGJ0yixDYbKQYOu0lShYtzV_IMr6M3ik
+        refreshExpiresAt: '2026-11-13T22:10:00Z'
+        user:
+          id: 01a15965-b480-79af-a113-29b2fc82e5ef
+          displayName: Maria
+          email: maria.exemplo@example.com
+    AuthSessionNew:
+      summary: Conta nova
+      value:
+        accessToken: eyJhbGciOiJSUzI1NiIsImtpZCI6IjIwMjYtMTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJhdWQiOiJub3Rlcy13ZWIiLCJzdWIiOiIwMWExNTk2NS1iNDgwLTc5YWYtYTExMy0yOWIyZmM4MmU1ZWYiLCJpYXQiOjE3OTQwMDMwMDAsImV4cCI6MTc5NDAwMzkwMH0.YXNzaW5hdHVyYS1kZS1leGVtcGxvLW5hby12YWxpZGE
+        tokenType: Bearer
+        expiresIn: 900
+        refreshToken: FtFqsasltdyRGJ0yixDYbKQYOu0lShYtzV_IMr6M3ik
+        refreshExpiresAt: '2026-10-27T13:00:00Z'
+        user:
+          id: 01a15965-b480-79af-a113-29b2fc82e5ef
+          displayName: Maria
+          email: maria.exemplo@example.com
+    AuthSessionRefreshed:
+      summary: Sessão renovada (refresh token novo)
+      value:
+        accessToken: eyJhbGciOiJSUzI1NiIsImtpZCI6IjIwMjYtMTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJhdWQiOiJub3Rlcy13ZWIiLCJzdWIiOiIwMWExNTk2NS1iNDgwLTc5YWYtYTExMy0yOWIyZmM4MmU1ZWYiLCJpYXQiOjE3OTQwMDMwMDAsImV4cCI6MTc5NDAwMzkwMH0.YXNzaW5hdHVyYS1kZS1leGVtcGxvLW5hby12YWxpZGE
+        tokenType: Bearer
+        expiresIn: 900
+        refreshToken: F4kRweJ1MAVVYiqsrKCSvpHc_MgytYRyOmwfwQHSNoo
+        refreshExpiresAt: '2026-11-13T22:25:00Z'
+        user:
+          id: 01a15965-b480-79af-a113-29b2fc82e5ef
+          displayName: Maria
+          email: maria.exemplo@example.com
+    Account:
+      summary: Conta com código definido
+      value:
+        id: 01a15965-b480-79af-a113-29b2fc82e5ef
+        email: maria.exemplo@example.com
+        displayName: Maria
+        secretCodeSet: true
+        createdAt: '2026-10-20T13:00:00Z'
+    TextNote:
+      summary: Nota de texto
+      value:
+        id: 6aeb05a4403720b7964ada4c
+        kind: text
+        title: Dentista quinta 14h
+        body: Levar a carteirinha do convênio.
+        color: blue
+        labels: [saúde]
+        pinned: false
+        archived: false
+        reminderAt: '2026-11-12T17:00:00Z'
+        createdAt: '2026-11-04T10:15:00Z'
+        updatedAt: '2026-11-04T10:15:00Z'
+        version: 1
+    ChecklistNote:
+      summary: Checklist
+      value:
+        id: 6aec6fc05bd053a2e3d78b78
+        kind: checklist
+        title: Lista do mercado
+        items:
+          - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+            text: pão
+            done: false
+          - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+            text: leite
+            done: false
+        color: yellow
+        labels: [casa]
+        pinned: true
+        archived: false
+        reminderAt: null
+        createdAt: '2026-11-05T12:00:00Z'
+        updatedAt: '2026-11-05T12:00:00Z'
+        version: 1
+    ChecklistNoteSaved:
+      summary: Checklist salvo
+      value:
+        id: 6aec6fc05bd053a2e3d78b78
+        kind: checklist
+        title: Lista do mercado
+        items:
+          - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+            text: pão
+            done: true
+          - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+            text: leite
+            done: false
+        color: yellow
+        labels: [casa]
+        pinned: true
+        archived: false
+        reminderAt: null
+        createdAt: '2026-11-05T12:00:00Z'
+        updatedAt: '2026-11-06T22:10:00Z'
+        version: 2
+    NotePage:
+      summary: Primeira página
+      value:
+        items:
+          - id: 6aec6fc05bd053a2e3d78b78
+            kind: checklist
+            title: Lista do mercado
+            items:
+              - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+                text: pão
+                done: false
+              - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+                text: leite
+                done: false
+            color: yellow
+            labels: [casa]
+            pinned: true
+            archived: false
+            reminderAt: null
+            createdAt: '2026-11-05T12:00:00Z'
+            updatedAt: '2026-11-05T12:00:00Z'
+            version: 1
+          - id: 6aeb05a4403720b7964ada4c
+            kind: text
+            title: Dentista quinta 14h
+            body: Levar a carteirinha do convênio.
+            color: blue
+            labels: [saúde]
+            pinned: false
+            archived: false
+            reminderAt: '2026-11-12T17:00:00Z'
+            createdAt: '2026-11-04T10:15:00Z'
+            updatedAt: '2026-11-04T10:15:00Z'
+            version: 1
+          - id: 6ae7852896143495713a897b
+            kind: text
+            title: Ideias de presente
+            body: |-
+              Mãe: livro de receitas
+              Pai: fone sem fio
+            color: default
+            labels: []
+            pinned: false
+            archived: false
+            reminderAt: null
+            createdAt: '2026-11-01T18:30:00Z'
+            updatedAt: '2026-11-01T18:30:00Z'
+            version: 2
+        page: 1
+        pageSize: 20
+        total: 3
+    AggregatedComplete:
+      summary: As 3 fontes responderam
+      value:
+        generatedAt: '2026-11-06T22:10:00Z'
+        facade:
+          totalNotes: 14
+          pinned: 2
+          archived: 3
+          updatedLast14Days: 5
+          remindersToday: 1
+        safety:
+          network:
+            total: 3
+            confirmed: 2
+            pending: 1
+            declined: 0
+            contacts:
+              - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                nickname: Ana
+                position: 1
+                status: confirmed
+                channel: telegram
+              - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                nickname: Beto
+                position: 2
+                status: confirmed
+                channel: web
+              - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+                nickname: Carla
+                position: 3
+                status: pending
+                channel: null
+          alertSettings:
+            includeLocation: true
+            countdownSeconds: 10
+            reviewed: true
+          activeCheckIn:
+            id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+            destination: Casa
+            dueAt: '2026-11-07T02:30:00Z'
+            deadlineAt: '2026-11-07T02:40:00Z'
+            status: active
+          lastTest:
+            helpRequestId: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+            at: '2026-11-03T22:02:00Z'
+            outcome: ok
+        readiness:
+          score: 100
+          level: ready
+          items:
+            - id: network-confirmed
+              ok: true
+              weight: 30
+              text: 2 de 3 contatos confirmaram
+              recommendation: null
+            - id: network-two-confirmed
+              ok: true
+              weight: 10
+              text: Você tem 2 contatos confirmados
+              recommendation: null
+            - id: message-reviewed
+              ok: true
+              weight: 15
+              text: Mensagem revisada
+              recommendation: null
+            - id: location-permission
+              ok: true
+              weight: 10
+              text: Localização permitida neste navegador
+              recommendation: null
+            - id: recent-test
+              ok: true
+              weight: 20
+              text: Último Teste seguro há 3 dias
+              recommendation: null
+            - id: facade-usage
+              ok: true
+              weight: 10
+              text: 5 notas atualizadas nos últimos 14 dias
+              recommendation: null
+            - id: secret-code
+              ok: true
+              weight: 5
+              text: Código de bloqueio definido
+              recommendation: null
+          messagePreview:
+            text: 'Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: [link do mapa na hora do pedido]. Enviado às 19:10.'
+            characters: 150
+            limit: 4096
+        disabledFeatures:
+          - id: sms-whatsapp-email
+            title: Aviso por SMS, WhatsApp ou e-mail
+            reason: Planejado. Hoje os avisos saem só pelo Telegram ou pela página web do contato.
+          - id: web-push
+            title: Notificação para quem escolheu o canal web
+            reason: Planejado. Exige Web Push. Hoje a página precisa estar aberta para mostrar o aviso. Prefira o Telegram.
+          - id: check-in-push
+            title: Lembrete do check-in por notificação
+            reason: Planejado. Exige Web Push, que ainda não foi implementado.
+          - id: decoy-code
+            title: Código alternativo que abre uma área falsa
+            reason: Planejado para uma próxima versão.
+          - id: false-alarm-message
+            title: Mensagem de "foi engano" para a rede
+            reason: Planejado. Hoje o cancelamento só é registrado.
+        sources:
+          notes: ok
+          safety: ok
+          readiness: ok
+    AggregatedNotesUnavailable:
+      summary: O notes-service não respondeu (200 parcial)
+      value:
+        generatedAt: '2026-11-06T22:10:00Z'
+        facade: null
+        safety:
+          network:
+            total: 3
+            confirmed: 2
+            pending: 1
+            declined: 0
+            contacts:
+              - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                nickname: Ana
+                position: 1
+                status: confirmed
+                channel: telegram
+              - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                nickname: Beto
+                position: 2
+                status: confirmed
+                channel: web
+              - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+                nickname: Carla
+                position: 3
+                status: pending
+                channel: null
+          alertSettings:
+            includeLocation: true
+            countdownSeconds: 10
+            reviewed: true
+          activeCheckIn: null
+          lastTest:
+            helpRequestId: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+            at: '2026-11-03T22:02:00Z'
+            outcome: ok
+        readiness:
+          score: 90
+          level: ready
+          items:
+            - id: network-confirmed
+              ok: true
+              weight: 30
+              text: 2 de 3 contatos confirmaram
+              recommendation: null
+            - id: network-two-confirmed
+              ok: true
+              weight: 10
+              text: Você tem 2 contatos confirmados
+              recommendation: null
+            - id: message-reviewed
+              ok: true
+              weight: 15
+              text: Mensagem revisada
+              recommendation: null
+            - id: location-permission
+              ok: true
+              weight: 10
+              text: Localização permitida neste navegador
+              recommendation: null
+            - id: recent-test
+              ok: true
+              weight: 20
+              text: Último Teste seguro há 3 dias
+              recommendation: null
+            - id: facade-usage
+              ok: false
+              weight: 10
+              text: Não foi possível verificar as notas agora
+              recommendation: Use as notas no dia a dia para o app parecer um bloco de notas comum.
+            - id: secret-code
+              ok: true
+              weight: 5
+              text: Código de bloqueio definido
+              recommendation: null
+          messagePreview:
+            text: 'Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: [link do mapa na hora do pedido]. Enviado às 19:10.'
+            characters: 150
+            limit: 4096
+        disabledFeatures:
+          - id: web-push
+            title: Notificação para quem escolheu o canal web
+            reason: Planejado. Exige Web Push. Hoje a página precisa estar aberta para mostrar o aviso. Prefira o Telegram.
+        sources:
+          notes: unavailable
+          safety: ok
+          readiness: ok
+    AggregatedReadinessFallback:
+      summary: A Function não respondeu (prontidão de reserva)
+      value:
+        generatedAt: '2026-11-06T22:10:00Z'
+        facade:
+          totalNotes: 14
+          pinned: 2
+          archived: 3
+          updatedLast14Days: 5
+          remindersToday: 1
+        safety:
+          network:
+            total: 1
+            confirmed: 1
+            pending: 0
+            declined: 0
+            contacts:
+              - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                nickname: Ana
+                position: 1
+                status: confirmed
+                channel: telegram
+          alertSettings:
+            includeLocation: false
+            countdownSeconds: 10
+            reviewed: false
+          activeCheckIn: null
+          lastTest: null
+        readiness:
+          score: 30
+          level: attention
+          items:
+            - id: network-confirmed
+              ok: true
+              weight: 30
+              text: 1 de 1 contato confirmou
+              recommendation: null
+            - id: message-reviewed
+              ok: false
+              weight: 15
+              text: Mensagem ainda não revisada
+              recommendation: Revise a mensagem e veja a prévia.
+          messagePreview: null
+        disabledFeatures:
+          - id: web-push
+            title: Notificação para quem escolheu o canal web
+            reason: Planejado. Exige Web Push. Hoje a página precisa estar aberta para mostrar o aviso. Prefira o Telegram.
+        sources:
+          notes: ok
+          safety: ok
+          readiness: fallback
+    ContactAna:
+      summary: Confirmada pelo Telegram
+      value:
+        id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+        nickname: Ana
+        position: 1
+        status: confirmed
+        channel: telegram
+        inviteExpiresAt: '2026-10-23T13:10:00Z'
+        respondedAt: '2026-10-20T14:02:00Z'
+        createdAt: '2026-10-20T13:05:00Z'
+    ContactCarlaNew:
+      summary: Recém-adicionada
+      value:
+        id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+        nickname: Carla
+        position: 3
+        status: pending
+        channel: null
+        inviteExpiresAt: null
+        respondedAt: null
+        createdAt: '2026-10-20T13:07:00Z'
+    ContactList:
+      summary: Rede com 3 contatos
+      value:
+        items:
+          - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            nickname: Ana
+            position: 1
+            status: confirmed
+            channel: telegram
+            inviteExpiresAt: '2026-10-23T13:10:00Z'
+            respondedAt: '2026-10-20T14:02:00Z'
+            createdAt: '2026-10-20T13:05:00Z'
+          - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            nickname: Beto
+            position: 2
+            status: confirmed
+            channel: web
+            inviteExpiresAt: '2026-10-23T13:11:00Z'
+            respondedAt: '2026-10-21T09:30:00Z'
+            createdAt: '2026-10-20T13:06:00Z'
+          - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            nickname: Carla
+            position: 3
+            status: pending
+            channel: null
+            inviteExpiresAt: '2026-11-09T22:10:00Z'
+            respondedAt: null
+            createdAt: '2026-10-20T13:07:00Z'
+    ContactListReordered:
+      summary: Beto em primeiro
+      value:
+        items:
+          - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            nickname: Beto
+            position: 1
+            status: confirmed
+            channel: web
+            inviteExpiresAt: '2026-10-23T13:11:00Z'
+            respondedAt: '2026-10-21T09:30:00Z'
+            createdAt: '2026-10-20T13:06:00Z'
+          - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            nickname: Ana
+            position: 2
+            status: confirmed
+            channel: telegram
+            inviteExpiresAt: '2026-10-23T13:10:00Z'
+            respondedAt: '2026-10-20T14:02:00Z'
+            createdAt: '2026-10-20T13:05:00Z'
+          - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            nickname: Carla
+            position: 3
+            status: pending
+            channel: null
+            inviteExpiresAt: '2026-11-09T22:10:00Z'
+            respondedAt: null
+            createdAt: '2026-10-20T13:07:00Z'
+    AlertSettings:
+      summary: Mensagem revisada
+      value:
+        messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+        includeLocation: true
+        countdownSeconds: 10
+        checkInToleranceMinutes: 10
+        reviewed: true
+        reviewedAt: '2026-10-20T13:15:00Z'
+    CheckInActive:
+      summary: Check-in ativo
+      value:
+        id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+        destination: Casa
+        dueAt: '2026-11-07T02:30:00Z'
+        toleranceMinutes: 10
+        deadlineAt: '2026-11-07T02:40:00Z'
+        status: active
+        mode: real
+        version: 1
+        createdAt: '2026-11-06T22:00:00Z'
+        confirmedAt: null
+        expiredAt: null
+        helpRequestId: null
+    HelpRequestTriggered:
+      summary: Recém-disparado
+      value:
+        id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+        origin: button
+        mode: real
+        status: triggered
+        location:
+          lat: -23.5505
+          lng: -46.6333
+          accuracyMeters: 20
+        checkInId: null
+        createdAt: '2026-11-06T22:10:03Z'
+        dispatchedAt: null
+        steps: []
+    HelpRequestDispatched:
+      summary: Enviado, com a linha do tempo
+      value:
+        id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+        origin: button
+        mode: real
+        status: dispatched
+        location:
+          lat: -23.5505
+          lng: -46.6333
+          accuracyMeters: 20
+        checkInId: null
+        createdAt: '2026-11-06T22:10:03Z'
+        dispatchedAt: '2026-11-06T22:10:06Z'
+        steps:
+          - id: 01a1b2e9-6e48-797f-9e3b-0ab388674b42
+            stepOrder: 1
+            contactId: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            contactNickname: Ana
+            channel: telegram
+            outcome: sent
+            message: 'Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:05Z'
+          - id: 01a1b2e9-7230-799c-b29f-d2d2e3f41f19
+            stepOrder: 2
+            contactId: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            contactNickname: Beto
+            channel: web
+            outcome: published_web
+            message: 'Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:06Z'
+          - id: 01a1b2e9-7230-7b32-924b-5ba12385f4db
+            stepOrder: 3
+            contactId: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            contactNickname: Carla
+            channel: none
+            outcome: skipped_unconfirmed
+            message: null
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:06Z'
+    HelpRequestSafeTest:
+      summary: Teste seguro, nada enviado
+      value:
+        id: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+        origin: check_in
+        mode: test
+        status: dispatched
+        location: null
+        checkInId: 01a1a36d-1f00-7e6c-b81e-9016d97753a5
+        createdAt: '2026-11-03T22:02:00Z'
+        dispatchedAt: '2026-11-03T22:02:05Z'
+        steps:
+          - id: 01a1a36f-0360-71b6-8644-3baaae682176
+            stepOrder: 1
+            contactId: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            contactNickname: Ana
+            channel: telegram
+            outcome: would_send
+            message: Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.
+            errorCode: null
+            occurredAt: '2026-11-03T22:02:04Z'
+          - id: 01a1a36f-0360-7f53-b4bf-71d4d781c70d
+            stepOrder: 2
+            contactId: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            contactNickname: Beto
+            channel: web
+            outcome: would_send
+            message: Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.
+            errorCode: null
+            occurredAt: '2026-11-03T22:02:04Z'
+    InvitationPagePending:
+      summary: Aguardando resposta
+      value:
+        inviterDisplayName: Maria
+        status: pending
+        channel: null
+        expiresAt: '2026-11-09T22:10:00Z'
+        respondable: true
+        telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        remoteUrl: http://localhost:5175/remoteEntry.js
+    InvitationPageTelegramChosen:
+      summary: Escolheu o Telegram
+      value:
+        inviterDisplayName: Maria
+        status: pending
+        channel: telegram
+        expiresAt: '2026-11-09T22:10:00Z'
+        respondable: true
+        telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        remoteUrl: http://localhost:5175/remoteEntry.js
+    InvitationPageWeb:
+      summary: Aceito pelo navegador
+      value:
+        inviterDisplayName: Maria
+        status: confirmed
+        channel: web
+        expiresAt: '2026-10-23T13:11:00Z'
+        respondable: false
+        telegramUrl: https://t.me/ghosty_dev_bot?start=lSBqmnsXmI4nn3PTzmSD6QmL-QQyvogzSO__I8RcxFA
+        remoteUrl: http://localhost:5175/remoteEntry.js

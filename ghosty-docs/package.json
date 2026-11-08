@@ -1,0 +1,34 @@
+{
+  "name": "ghosty-docs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratos (OpenAPI e AsyncAPI), mocks e documentação do Ghosty",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@asyncapi/parser": "^3.6.6",
+    "@redocly/cli": "^2.76.0",
+    "@stoplight/prism-cli": "^5.16.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "concurrently": "^10.0.7",
+    "prettier": "^3.9.10",
+    "vitest": "^5.1.0",
+    "yaml": "^2.9.1"
+  },
+  "scripts": {
+    "lint": "npm run lint:openapi && npm run lint:format",
+    "lint:openapi": "redocly lint",
+    "lint:format": "prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "mock:bff": "prism mock contracts/bff.openapi.yaml --port 4010 --errors",
+    "mock:notes": "prism mock contracts/notes-service.openapi.yaml --port 4011 --errors",
+    "mock:safety": "prism mock contracts/safety-service.openapi.yaml --port 4012 --errors",
+    "mock:functions": "prism mock contracts/functions.openapi.yaml --port 4013 --errors",
+    "mock:all": "concurrently --names bff,notes,safety,fn --prefix-colors auto npm:mock:bff npm:mock:notes npm:mock:safety npm:mock:functions",
+    "test:mocks": "node scripts/smoke-mocks.mjs"
+  }
+}

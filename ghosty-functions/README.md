@@ -2,7 +2,7 @@
 
 Azure Functions do Ghosty: cálculo, enriquecimento de dados e processamento de eventos.
 
-> **Status:** estrutura inicial. A implementação começa na Sprint 1.
+> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
 
 ## Sobre o Ghosty
 
@@ -48,6 +48,14 @@ src/
 ├── infrastructure/  cliente HTTP do safety-service, publicação em filas e cliente do Telegram
 └── functions/       registro dos gatilhos HTTP e de fila (camada de entrada)
 ```
+
+## Contrato e mock
+
+O contrato v0 deste projeto está em [`ghosty-docs/contracts/functions.openapi.yaml`](../ghosty-docs/contracts/functions.openapi.yaml), com exemplos em cada operação. O mock sobe com `cd ../ghosty-docs && npm ci && npm run mock:functions` (porta 4013). Veja o [guia dos contratos e dos mocks](../ghosty-docs/contracts/README.md).
+
+As funções de fila seguem o [AsyncAPI](../ghosty-docs/asyncapi/asyncapi.yaml), e as mensagens de exemplo de `ghosty-docs/asyncapi/examples/` servem de fixtures nos testes.
+
+A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquitetura vem de [`config/`](../config) (as cópias nesta pasta não devem ser editadas à mão).
 
 ## Tecnologias
 

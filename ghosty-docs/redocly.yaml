@@ -1,0 +1,45 @@
+# Lint dos contratos OpenAPI (npm run lint:openapi).
+apis:
+  bff:
+    root: contracts/bff.openapi.yaml
+  notes-service:
+    root: contracts/notes-service.openapi.yaml
+  safety-service:
+    root: contracts/safety-service.openapi.yaml
+  functions:
+    root: contracts/functions.openapi.yaml
+
+extends:
+  - recommended
+
+rules:
+  # Projeto acadêmico, sem licença publicada no contrato.
+  info-license: off
+  info-license-strict: off
+
+  # Toda operação tem id, resumo, tag e pelo menos uma resposta 4xx.
+  operation-operationId: error
+  operation-summary: error
+  operation-tag-defined: error
+  operation-4xx-response: error
+  tags-alphabetical: off
+  # Os servidores apontam para a máquina local e para os mocks de propósito.
+  no-server-example.com: off
+
+  # Os exemplos viram as respostas dos mocks, então precisam bater com os schemas.
+  no-invalid-media-type-examples:
+    severity: error
+    allowAdditionalProperties: false
+  no-invalid-parameter-examples: error
+  no-invalid-schema-examples: error
+
+  # Cada corpo de requisição e de resposta traz pelo menos um exemplo.
+  rule/media-type-has-examples:
+    subject:
+      type: MediaType
+    assertions:
+      requireAny:
+        - example
+        - examples
+    message: Todo corpo de requisição e de resposta precisa de `example` ou `examples`.
+    severity: error

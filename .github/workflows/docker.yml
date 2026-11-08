@@ -1,0 +1,75 @@
+# Publica as imagens dos 3 serviços no Docker Hub, sem precisar de Docker na máquina.
+# Dispara com uma tag v* (git tag v1 && git push origin v1) ou manualmente, informando a tag.
+# Precisa dos secrets DOCKERHUB_USERNAME e DOCKERHUB_TOKEN (access token do Docker Hub).
+name: docker
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da imagem (ex.: v1)'
+        type: string
+        required: true
+        default: v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [ghosty-bff, ghosty-notes-service, ghosty-safety-service]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Nomes da imagem
+        id: image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::Cadastre os secrets DOCKERHUB_USERNAME e DOCKERHUB_TOKEN em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          user="$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')"
+          repo="docker.io/$user/$PROJECT"
+          {
+            echo "version=$TAG"
+            echo "tags<<EOF"
+            echo "$repo:$TAG"
+            echo "$repo:sha-${GITHUB_SHA::7}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.project }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.project }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.project }}

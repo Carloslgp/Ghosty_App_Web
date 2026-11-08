@@ -1,0 +1,37 @@
+name: ci-bff
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-bff/**'
+      - 'ghosty-docs/contracts/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-bff.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-bff/**'
+      - 'ghosty-docs/contracts/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-bff.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-bff
+      docker: true

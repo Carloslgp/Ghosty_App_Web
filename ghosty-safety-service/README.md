@@ -2,7 +2,7 @@
 
 Microserviço do domínio **Conta e Rede de apoio** do Ghosty, com Azure SQL Database.
 
-> **Status:** estrutura inicial. A implementação começa na Sprint 1.
+> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
 
 ## Sobre o Ghosty
 
@@ -55,6 +55,14 @@ src/
 
 As regras de dependência entre as camadas são verificadas por testes de arquitetura.
 
+## Contrato e mock
+
+O contrato v0 deste projeto está em [`ghosty-docs/contracts/safety-service.openapi.yaml`](../ghosty-docs/contracts/safety-service.openapi.yaml), com exemplos em cada operação. O mock sobe com `cd ../ghosty-docs && npm ci && npm run mock:safety` (porta 4012). Veja o [guia dos contratos e dos mocks](../ghosty-docs/contracts/README.md).
+
+Os eventos que este serviço publica e consome estão em [`ghosty-docs/asyncapi/`](../ghosty-docs/asyncapi), com os JSON Schemas para validar com `ajv`.
+
+A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquitetura vem de [`config/`](../config) (as cópias nesta pasta não devem ser editadas à mão).
+
 ## Tecnologias
 
 - Node.js 24 + TypeScript
@@ -84,6 +92,8 @@ npm run start:dev       # porta 3002 · Swagger em http://localhost:3002/docs
 > Em construção. Comandos previstos: `npm test` (unidade, arquitetura e integração).
 
 ## Docker
+
+O `Dockerfile` (multi-stage, usuário sem root) e o `.dockerignore` já estão nesta pasta. Sem Docker na máquina, as imagens são publicadas pelo GitHub Actions ([`docker.yml`](../.github/workflows/docker.yml)) ao criar uma tag `v*`. Com Docker:
 
 ```bash
 docker build -t <usuario>/ghosty-safety-service:v1 .

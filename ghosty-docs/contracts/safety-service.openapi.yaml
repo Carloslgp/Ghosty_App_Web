@@ -1,0 +1,2820 @@
+openapi: 3.0.3
+info:
+  title: safety-service
+  version: 0.1.0
+  description: |
+    Microserviço do domínio **Conta e Rede de apoio**, com Azure SQL (SQLite na máquina local).
+
+    - Chamado pelo BFF e pela Function. Toda rota, exceto `/health`, exige `X-Internal-Key`.
+    - As rotas da pessoa usuária (contatos, mensagem, check-ins, pedidos de ajuda e resumo) exigem
+      `X-User-Id`. Um recurso de outra conta responde 404, como se não existisse.
+    - IDs em UUID v7. Datas em ISO 8601, sempre em UTC.
+    - Erros em `application/problem+json` (RFC 9457), com o campo `code`.
+    - Código secreto errado e conta bloqueada recebem **a mesma resposta** (401), para não revelar o
+      estado da conta. Depois de 5 erros, a verificação fica bloqueada por 15 minutos.
+    - `POST /check-ins` e `POST /help-requests` exigem `Idempotency-Key`: a mesma chave, da mesma conta,
+      em até 24 horas, devolve a mesma resposta e não gera um evento novo.
+    - Apelidos, chats do Telegram, modelo da mensagem, destino do check-in, localização e textos dos
+      avisos ficam cifrados no banco (AES-256-GCM). Não existe telefone.
+servers:
+  - url: http://localhost:3002
+    description: Máquina local
+  - url: http://localhost:4012
+    description: Mock (Prism)
+tags:
+  - name: accounts
+    description: Contas, autenticação e código secreto
+  - name: refresh-tokens
+    description: Tokens de renovação da sessão (o BFF emite o JWT)
+  - name: contacts
+    description: Rede de apoio
+  - name: invitations
+    description: Convite do contato (página pública, via BFF)
+  - name: alert-settings
+    description: Mensagem de aviso e preferências
+  - name: check-ins
+    description: Check-in "cheguei bem"
+  - name: help-requests
+    description: Pedidos de ajuda e linha do tempo do envio
+  - name: summary
+    description: Resumo para o painel
+  - name: internal
+    description: Rotas usadas só pela Function
+  - name: health
+    description: Situação do serviço
+security:
+  - internalKey: []
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Situação do serviço
+      description: Não consulta o banco, para o Azure SQL serverless poder pausar.
+      security: []
+      responses:
+        '200':
+          description: Serviço no ar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: safety-service
+                    time: '2026-11-06T22:10:00Z'
+
+  # ---------------------------------------------------------------- Contas
+  /accounts:
+    post:
+      tags: [accounts]
+      operationId: createAccount
+      summary: Cria uma conta
+      description: O e-mail é normalizado (minúsculas, sem espaços) e precisa ser único. A senha é guardada com Argon2id.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+            examples:
+              maria:
+                value:
+                  email: maria.exemplo@example.com
+                  displayName: Maria
+                  password: uma-senha-longa-de-exemplo
+      responses:
+        '201':
+          description: Conta criada
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                created:
+                  $ref: '#/components/examples/NewAccount'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/EmailInUse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /accounts/authenticate:
+    post:
+      tags: [accounts]
+      operationId: authenticateAccount
+      summary: Confere e-mail e senha
+      description: E-mail inexistente e senha errada recebem a mesma resposta (401).
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthenticateAccountRequest'
+            examples:
+              maria:
+                value:
+                  email: maria.exemplo@example.com
+                  password: uma-senha-longa-de-exemplo
+      responses:
+        '200':
+          description: Credenciais corretas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                maria:
+                  $ref: '#/components/examples/Account'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /accounts/{accountId}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [accounts]
+      operationId: getAccount
+      summary: Busca a conta
+      responses:
+        '200':
+          description: A conta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                maria:
+                  $ref: '#/components/examples/Account'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [accounts]
+      operationId: updateAccount
+      summary: Altera o nome da conta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+            examples:
+              rename:
+                value:
+                  displayName: Maria Silva
+      responses:
+        '200':
+          description: Conta atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+              examples:
+                renamed:
+                  value:
+                    id: 01a15965-b480-79af-a113-29b2fc82e5ef
+                    email: maria.exemplo@example.com
+                    displayName: Maria Silva
+                    secretCodeSet: true
+                    createdAt: '2026-10-20T13:00:00Z'
+                    updatedAt: '2026-11-06T22:10:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [accounts]
+      operationId: deleteAccount
+      summary: Apaga a conta e tudo o que é dela
+      description: |
+        Exclusão em cascata no SQL: tokens, contatos, mensagem, check-ins, pedidos de ajuda e linhas do
+        tempo. As notas ficam no `notes-service`, e o BFF apaga as duas partes.
+      responses:
+        '204':
+          description: Conta apagada
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /accounts/{accountId}/secret-code:
+    put:
+      tags: [accounts]
+      operationId: setSecretCode
+      summary: Define ou troca o código secreto
+      description: Exige a senha atual. O código tem de 6 a 8 dígitos e é guardado com Argon2id. Zera as tentativas e o bloqueio.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetSecretCodeRequest'
+            examples:
+              set:
+                value:
+                  currentPassword: uma-senha-longa-de-exemplo
+                  code: '482915'
+      responses:
+        '204':
+          description: Código definido
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /accounts/{accountId}/secret-code/verify:
+    post:
+      tags: [accounts]
+      operationId: verifySecretCode
+      summary: Confere o código secreto
+      description: |
+        Código certo: 204, e as tentativas voltam a zero. Código errado, conta sem código ou conta
+        bloqueada: sempre a mesma resposta 401. Cada erro conta uma tentativa; depois de 5, a conta
+        fica bloqueada por 15 minutos, sem aviso.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifySecretCodeRequest'
+            examples:
+              verify:
+                value:
+                  code: '482915'
+      responses:
+        '204':
+          description: Código correto
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/InvalidCredentials'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Refresh tokens
+  /refresh-tokens:
+    post:
+      tags: [refresh-tokens]
+      operationId: issueRefreshToken
+      summary: Emite um refresh token
+      description: Valor opaco de 32 bytes (base64url), válido por 7 dias. O banco guarda só o hash SHA-256, então o valor aparece uma única vez.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueRefreshTokenRequest'
+            examples:
+              issue:
+                value:
+                  accountId: 01a15965-b480-79af-a113-29b2fc82e5ef
+      responses:
+        '201':
+          description: Token emitido
+          headers:
+            Location:
+              description: Não há rota de leitura do token; aponta para a coleção
+              schema:
+                type: string
+              example: /refresh-tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshToken'
+              examples:
+                issued:
+                  value:
+                    accountId: 01a15965-b480-79af-a113-29b2fc82e5ef
+                    token: FtFqsasltdyRGJ0yixDYbKQYOu0lShYtzV_IMr6M3ik
+                    expiresAt: '2026-11-13T22:10:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /refresh-tokens/rotate:
+    post:
+      tags: [refresh-tokens]
+      operationId: rotateRefreshToken
+      summary: Troca o refresh token por um novo
+      description: O token usado é revogado. Token inexistente, vencido, revogado ou já usado responde 401.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenValue'
+            examples:
+              rotate:
+                value:
+                  token: FtFqsasltdyRGJ0yixDYbKQYOu0lShYtzV_IMr6M3ik
+      responses:
+        '200':
+          description: Novo token, da mesma conta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshToken'
+              examples:
+                rotated:
+                  value:
+                    accountId: 01a15965-b480-79af-a113-29b2fc82e5ef
+                    token: F4kRweJ1MAVVYiqsrKCSvpHc_MgytYRyOmwfwQHSNoo
+                    expiresAt: '2026-11-13T22:25:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /refresh-tokens/revoke:
+    post:
+      tags: [refresh-tokens]
+      operationId: revokeRefreshToken
+      summary: Revoga um refresh token (logout)
+      description: Idempotente. Um token desconhecido também responde 204.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenValue'
+            examples:
+              revoke:
+                value:
+                  token: F4kRweJ1MAVVYiqsrKCSvpHc_MgytYRyOmwfwQHSNoo
+      responses:
+        '204':
+          description: Token revogado
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Contatos
+  /contacts:
+    post:
+      tags: [contacts]
+      operationId: addContact
+      summary: Adiciona um contato
+      description: Só o apelido. O contato entra `pending`, no fim da ordem. Máximo de 10 contatos.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+            examples:
+              carla:
+                value:
+                  nickname: Carla
+      responses:
+        '201':
+          description: Contato criado
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                carla:
+                  $ref: '#/components/examples/ContactCarlaNew'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/TooManyContacts'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [contacts]
+      operationId: listContacts
+      summary: Lista a rede de apoio, na ordem de aviso
+      description: Lista curta (no máximo 10), sem paginação.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Contatos ordenados por `position`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactList'
+              examples:
+                network:
+                  $ref: '#/components/examples/ContactList'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /contacts/order:
+    put:
+      tags: [contacts]
+      operationId: reorderContacts
+      summary: Define a ordem de aviso
+      description: Recebe todos os ids da rede, na nova ordem. Faltar ou sobrar um id responde 400.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderContactsRequest'
+            examples:
+              betoFirst:
+                value:
+                  contactIds:
+                    - 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                    - 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                    - 01a1596c-1d20-7fdb-b978-4d0ae408d877
+      responses:
+        '200':
+          description: Rede na nova ordem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactList'
+              examples:
+                reordered:
+                  $ref: '#/components/examples/ContactListReordered'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /contacts/{contactId}:
+    parameters:
+      - $ref: '#/components/parameters/ContactId'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [contacts]
+      operationId: getContact
+      summary: Busca um contato
+      responses:
+        '200':
+          description: O contato
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                ana:
+                  $ref: '#/components/examples/ContactAna'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [contacts]
+      operationId: updateContact
+      summary: Altera o apelido
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+            examples:
+              rename:
+                value:
+                  nickname: Aninha
+      responses:
+        '200':
+          description: Contato atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+              examples:
+                renamed:
+                  value:
+                    id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                    nickname: Aninha
+                    position: 1
+                    status: confirmed
+                    channel: telegram
+                    inviteExpiresAt: '2026-10-23T13:10:00Z'
+                    respondedAt: '2026-10-20T14:02:00Z'
+                    createdAt: '2026-10-20T13:05:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [contacts]
+      operationId: removeContact
+      summary: Remove um contato
+      description: O link do convite deixa de funcionar e as posições dos demais são compactadas.
+      responses:
+        '204':
+          description: Contato removido
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /contacts/{contactId}/invitation:
+    post:
+      tags: [contacts]
+      operationId: createInvitation
+      summary: Gera o link de convite
+      description: |
+        Gera um token aleatório de 32 bytes (o banco guarda só o hash) válido por 72 horas para a resposta.
+        Um convite novo volta o contato para `pending` e invalida o link anterior.
+        O Ghosty não envia o convite: a pessoa compartilha o link como preferir.
+      parameters:
+        - $ref: '#/components/parameters/ContactId'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '201':
+          description: Convite gerado. O token só aparece nesta resposta.
+          headers:
+            Location:
+              description: Caminho público do convite
+              schema:
+                type: string
+              example: /invitations/jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+              examples:
+                carla:
+                  $ref: '#/components/examples/InvitationCarla'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Convites (públicos, via BFF)
+  /invitations/{token}:
+    get:
+      tags: [invitations]
+      operationId: getInvitation
+      summary: Abre o convite
+      description: |
+        Token desconhecido, de contato removido ou substituído por um convite novo: 404.
+        Vencido sem resposta: 410. Já respondido: 200 com o `status` atual, para a página mostrar
+        o painel de avisos (canal web) ou uma mensagem neutra.
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Dados do convite
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationView'
+              examples:
+                pending:
+                  $ref: '#/components/examples/InvitationViewPending'
+                acceptedWeb:
+                  $ref: '#/components/examples/InvitationViewWeb'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/accept:
+    post:
+      tags: [invitations]
+      operationId: acceptInvitation
+      summary: Aceita o convite
+      description: |
+        - `channel: web`: o contato vira `confirmed` na hora, e o mesmo link passa a mostrar os avisos.
+        - `channel: telegram`: devolve o link `t.me` e o contato continua `pending` até o bot receber o
+          `/start`. Esta chamada não conta como resposta: se o contato desistir do Telegram, ainda pode
+          aceitar pelo navegador ou recusar.
+
+        Uma resposta já dada (aceite pelo navegador, vínculo do Telegram ou recusa) responde 409.
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitationRequest'
+            examples:
+              web:
+                value:
+                  channel: web
+              telegram:
+                value:
+                  channel: telegram
+      responses:
+        '200':
+          description: Convite aceito (web) ou link do Telegram (telegram)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationView'
+              examples:
+                web:
+                  $ref: '#/components/examples/InvitationViewWeb'
+                telegram:
+                  $ref: '#/components/examples/InvitationViewTelegramChosen'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvitationAlreadyAnswered'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/decline:
+    post:
+      tags: [invitations]
+      operationId: declineInvitation
+      summary: Recusa o convite
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Convite recusado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationView'
+              examples:
+                declined:
+                  value:
+                    inviterDisplayName: Maria
+                    status: declined
+                    channel: null
+                    expiresAt: '2026-11-09T22:10:00Z'
+                    respondable: false
+                    telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/InvitationAlreadyAnswered'
+        '410':
+          $ref: '#/components/responses/InvitationExpired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /invitations/{token}/alerts:
+    get:
+      tags: [invitations]
+      operationId: getInvitationAlerts
+      summary: Avisos do contato do canal web
+      description: |
+        Só para contatos `confirmed` no canal `web` (os outros recebem 404). Devolve os passos
+        `published_web` desse contato dos últimos 90 dias, do mais novo para o mais antigo. A página
+        consulta a cada 5 segundos, com `since` para receber só o que é novo.
+      parameters:
+        - $ref: '#/components/parameters/InvitationToken'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: since
+          in: query
+          description: Só os avisos publicados depois deste instante
+          schema:
+            type: string
+            format: date-time
+          example: '2026-11-06T22:00:00Z'
+      responses:
+        '200':
+          description: Avisos publicados para o contato
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationAlerts'
+              examples:
+                oneAlert:
+                  $ref: '#/components/examples/InvitationAlerts'
+                none:
+                  value:
+                    items: []
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Mensagem
+  /alert-settings:
+    get:
+      tags: [alert-settings]
+      operationId: getAlertSettings
+      summary: Mensagem de aviso e preferências
+      description: Criadas com os valores padrão junto com a conta.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: As configurações
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSettings'
+              examples:
+                reviewed:
+                  $ref: '#/components/examples/AlertSettings'
+                defaults:
+                  summary: Valores padrão, ainda não revisados
+                  value:
+                    messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                    includeLocation: true
+                    countdownSeconds: 10
+                    checkInToleranceMinutes: 10
+                    reviewed: false
+                    reviewedAt: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [alert-settings]
+      operationId: updateAlertSettings
+      summary: Salva a mensagem e as preferências
+      description: Marca a mensagem como revisada (`reviewedAt`).
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAlertSettingsRequest'
+            examples:
+              save:
+                value:
+                  messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                  includeLocation: true
+                  countdownSeconds: 10
+                  checkInToleranceMinutes: 10
+      responses:
+        '200':
+          description: Configurações salvas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSettings'
+              examples:
+                saved:
+                  $ref: '#/components/examples/AlertSettings'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Check-ins
+  /check-ins:
+    post:
+      tags: [check-ins]
+      operationId: startCheckIn
+      summary: Inicia um check-in
+      description: |
+        O prazo (`deadlineAt`) é `dueAt` + tolerância, e precisa ficar entre 1 minuto e 24 horas a partir
+        de agora. Agenda o evento `CheckInDeadlineScheduled`. Só pode haver um check-in ativo por modo
+        (`real` e `test`); outro ativo responde 409.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartCheckInRequest'
+            examples:
+              home:
+                value:
+                  destination: Casa
+                  dueAt: '2026-11-07T02:30:00Z'
+                  toleranceMinutes: 10
+                  mode: real
+              safeTest:
+                summary: Teste seguro, prazo de 1 minuto
+                value:
+                  destination: Teste
+                  dueAt: '2026-11-03T22:01:00Z'
+                  toleranceMinutes: 0
+                  mode: test
+      responses:
+        '201':
+          description: Check-in ativo (ou o mesmo check-in, se a `Idempotency-Key` já foi usada)
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                active:
+                  $ref: '#/components/examples/CheckInActive'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          $ref: '#/components/responses/CheckInAlreadyActive'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [check-ins]
+      operationId: listCheckIns
+      summary: Lista os check-ins
+      description: Do mais novo para o mais antigo.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/CheckInStatus'
+          example: active
+        - $ref: '#/components/parameters/ModeFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de check-ins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckInPage'
+              examples:
+                active:
+                  value:
+                    items:
+                      - id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                        destination: Casa
+                        dueAt: '2026-11-07T02:30:00Z'
+                        toleranceMinutes: 10
+                        deadlineAt: '2026-11-07T02:40:00Z'
+                        status: active
+                        mode: real
+                        version: 1
+                        createdAt: '2026-11-06T22:00:00Z'
+                        confirmedAt: null
+                        expiredAt: null
+                        helpRequestId: null
+                    page: 1
+                    pageSize: 20
+                    total: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /check-ins/{checkInId}:
+    parameters:
+      - $ref: '#/components/parameters/CheckInId'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [check-ins]
+      operationId: getCheckIn
+      summary: Busca um check-in
+      responses:
+        '200':
+          description: O check-in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                active:
+                  $ref: '#/components/examples/CheckInActive'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [check-ins]
+      operationId: extendCheckIn
+      summary: Estende o prazo
+      description: Sobe a `version` e agenda um novo prazo. O agendamento anterior passa a ser ignorado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtendCheckInRequest'
+            examples:
+              plus30:
+                value:
+                  dueAt: '2026-11-07T03:00:00Z'
+      responses:
+        '200':
+          description: Check-in estendido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                extended:
+                  value:
+                    id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                    destination: Casa
+                    dueAt: '2026-11-07T03:00:00Z'
+                    toleranceMinutes: 10
+                    deadlineAt: '2026-11-07T03:10:00Z'
+                    status: active
+                    mode: real
+                    version: 2
+                    createdAt: '2026-11-06T22:00:00Z'
+                    confirmedAt: null
+                    expiredAt: null
+                    helpRequestId: null
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [check-ins]
+      operationId: cancelCheckIn
+      summary: Cancela o check-in
+      description: O registro continua, com status `cancelled`. O prazo agendado passa a ser ignorado.
+      responses:
+        '204':
+          description: Check-in cancelado
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /check-ins/{checkInId}/confirm:
+    post:
+      tags: [check-ins]
+      operationId: confirmArrival
+      summary: Cheguei bem
+      description: Confirmar um check-in vencido, cancelado ou já confirmado responde 409 `INVALID_STATE`.
+      parameters:
+        - $ref: '#/components/parameters/CheckInId'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Check-in confirmado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckIn'
+              examples:
+                confirmed:
+                  value:
+                    id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                    destination: Casa
+                    dueAt: '2026-11-07T02:30:00Z'
+                    toleranceMinutes: 10
+                    deadlineAt: '2026-11-07T02:40:00Z'
+                    status: confirmed
+                    mode: real
+                    version: 1
+                    createdAt: '2026-11-06T22:00:00Z'
+                    confirmedAt: '2026-11-07T02:12:00Z'
+                    expiredAt: null
+                    helpRequestId: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CheckInNotActive'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Pedidos de ajuda
+  /help-requests:
+    post:
+      tags: [help-requests]
+      operationId: triggerHelpRequest
+      summary: Dispara um pedido de ajuda
+      description: |
+        Grava o pedido e o evento `HelpRequestTriggered` na mesma transação (outbox) e responde 202:
+        o envio acontece depois, na Function. O cliente acompanha pelo `Location`.
+
+        - `mode: test` (Teste seguro) nunca envia nada: todo passo termina em `would_send`.
+        - `location` só é guardada se a pessoa ativou "incluir localização" na mensagem.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerHelpRequestRequest'
+            examples:
+              real:
+                value:
+                  mode: real
+                  location:
+                    lat: -23.5505
+                    lng: -46.6333
+                    accuracyMeters: 20
+              safeTest:
+                summary: Teste seguro, sem localização
+                value:
+                  mode: test
+      responses:
+        '202':
+          description: Pedido aceito, ainda sem envio (ou o mesmo pedido, se a `Idempotency-Key` já foi usada)
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                triggered:
+                  $ref: '#/components/examples/HelpRequestTriggered'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [help-requests]
+      operationId: listHelpRequests
+      summary: Lista os pedidos de ajuda
+      description: Do mais novo para o mais antigo, sem a linha do tempo.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - $ref: '#/components/parameters/ModeFilter'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de pedidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequestPage'
+              examples:
+                page:
+                  value:
+                    items:
+                      - id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                        origin: button
+                        mode: real
+                        status: dispatched
+                        createdAt: '2026-11-06T22:10:03Z'
+                        dispatchedAt: '2026-11-06T22:10:06Z'
+                      - id: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+                        origin: check_in
+                        mode: test
+                        status: dispatched
+                        createdAt: '2026-11-03T22:02:00Z'
+                        dispatchedAt: '2026-11-03T22:02:05Z'
+                    page: 1
+                    pageSize: 20
+                    total: 2
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /help-requests/{helpRequestId}:
+    get:
+      tags: [help-requests]
+      operationId: getHelpRequest
+      summary: Busca um pedido, com a linha do tempo
+      description: O front consulta a cada 2 segundos até `status` sair de `triggered`.
+      parameters:
+        - $ref: '#/components/parameters/HelpRequestId'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: O pedido e os passos do envio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                dispatched:
+                  $ref: '#/components/examples/HelpRequestDispatched'
+                safeTest:
+                  $ref: '#/components/examples/HelpRequestSafeTest'
+                triggered:
+                  $ref: '#/components/examples/HelpRequestTriggered'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /help-requests/{helpRequestId}/cancel:
+    post:
+      tags: [help-requests]
+      operationId: cancelHelpRequest
+      summary: Foi engano
+      description: |
+        `triggered` ou `dispatched` → `cancelled`. Hoje só registra: o aviso já enviado não é desfeito
+        e nenhuma mensagem de "foi engano" sai para a rede. Pedido já cancelado ou com falha responde 409.
+      parameters:
+        - $ref: '#/components/parameters/HelpRequestId'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Pedido cancelado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpRequest'
+              examples:
+                cancelled:
+                  value:
+                    id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                    origin: button
+                    mode: real
+                    status: cancelled
+                    location:
+                      lat: -23.5505
+                      lng: -46.6333
+                      accuracyMeters: 20
+                    checkInId: null
+                    createdAt: '2026-11-06T22:10:03Z'
+                    dispatchedAt: '2026-11-06T22:10:06Z'
+                    steps: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/HelpRequestNotCancellable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Resumo
+  /summary:
+    get:
+      tags: [summary]
+      operationId: getSafetySummary
+      summary: Resumo da área de segurança para o painel
+      description: Usado pelo `GET /aggregated-data` do BFF e para montar o pedido de prontidão da Function.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Rede, mensagem, check-in ativo e último teste
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetySummary'
+              examples:
+                ready:
+                  value:
+                    displayName: Maria
+                    secretCodeSet: true
+                    network:
+                      total: 3
+                      confirmed: 2
+                      pending: 1
+                      declined: 0
+                      contacts:
+                        - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                          nickname: Ana
+                          position: 1
+                          status: confirmed
+                          channel: telegram
+                        - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                          nickname: Beto
+                          position: 2
+                          status: confirmed
+                          channel: web
+                        - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+                          nickname: Carla
+                          position: 3
+                          status: pending
+                          channel: null
+                    alertSettings:
+                      messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                      includeLocation: true
+                      countdownSeconds: 10
+                      reviewed: true
+                    activeCheckIn:
+                      id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+                      destination: Casa
+                      dueAt: '2026-11-07T02:30:00Z'
+                      deadlineAt: '2026-11-07T02:40:00Z'
+                      status: active
+                    lastTest:
+                      helpRequestId: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+                      at: '2026-11-03T22:02:00Z'
+                      outcome: ok
+                newAccount:
+                  summary: Conta sem rede ainda
+                  value:
+                    displayName: Maria
+                    secretCodeSet: true
+                    network:
+                      total: 0
+                      confirmed: 0
+                      pending: 0
+                      declined: 0
+                      contacts: []
+                    alertSettings:
+                      messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+                      includeLocation: true
+                      countdownSeconds: 10
+                      reviewed: false
+                    activeCheckIn: null
+                    lastTest: null
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ---------------------------------------------------------------- Internas (Function)
+  /internal/check-ins/{checkInId}/expire:
+    post:
+      tags: [internal]
+      operationId: expireCheckIn
+      summary: Vence o check-in no prazo
+      description: |
+        Chamada pela Function `check-in-deadline`. Se o check-in estiver ativo e na mesma `version`,
+        marca `expired` e cria um pedido de ajuda com origem `check_in` (com outbox). Caso contrário,
+        responde `ignored`. É idempotente.
+      parameters:
+        - $ref: '#/components/parameters/CheckInId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpireCheckInRequest'
+            examples:
+              v1:
+                value:
+                  version: 1
+      responses:
+        '200':
+          description: Vencido ou ignorado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpireCheckInResult'
+              examples:
+                expired:
+                  value:
+                    result: expired
+                    helpRequestId: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                ignored:
+                  summary: Já confirmado, cancelado ou estendido
+                  value:
+                    result: ignored
+                    helpRequestId: null
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /internal/help-requests/{helpRequestId}/delivery-targets:
+    get:
+      tags: [internal]
+      operationId: getDeliveryTargets
+      summary: Destinos de entrega de um pedido
+      description: |
+        Chamada pela Function `dispatch-alert` na hora de enviar. É a única rota que devolve o chat do
+        Telegram (decifrado). Traz também os passos já registrados, para a Function não enviar duas vezes
+        o mesmo aviso quando a mensagem da fila for reprocessada.
+      parameters:
+        - $ref: '#/components/parameters/HelpRequestId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '200':
+          description: Contatos confirmados, na ordem, com o destino de cada um
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryTargets'
+              examples:
+                targets:
+                  value:
+                    helpRequestId: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+                    accountId: 01a15965-b480-79af-a113-29b2fc82e5ef
+                    mode: real
+                    targets:
+                      - contactId: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+                        nickname: Ana
+                        position: 1
+                        channel: telegram
+                        telegramChatId: '5123456789'
+                      - contactId: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+                        nickname: Beto
+                        position: 2
+                        channel: web
+                        telegramChatId: null
+                    recordedSteps: []
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /internal/contacts/telegram-link:
+    post:
+      tags: [internal]
+      operationId: linkTelegramContact
+      summary: Vincula o contato ao chat do Telegram (/start)
+      description: |
+        Chamada pela Function `telegram-webhook` quando o bot recebe `/start <token>`. Com token válido,
+        guarda o chat cifrado, muda o canal para `telegram` e o contato para `confirmed`.
+        Token vencido, já respondido ou inexistente: `ignored`, em silêncio.
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelegramLinkRequest'
+            examples:
+              start:
+                value:
+                  token: QZf1G-GRU6ddOI-CFHmAics50X53d1eLCEJyvzNUMdw
+                  chatId: '5123456789'
+      responses:
+        '200':
+          description: Vinculado ou ignorado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLinkResult'
+              examples:
+                linked:
+                  value:
+                    result: linked
+                    inviterDisplayName: Maria
+                ignored:
+                  value:
+                    result: ignored
+                    inviterDisplayName: null
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /internal/contacts/telegram-leave:
+    post:
+      tags: [internal]
+      operationId: leaveTelegramContact
+      summary: Tira o chat da rede de apoio (/parar)
+      description: Leva para `declined` todos os contatos confirmados com esse chat (o mesmo bot atende várias pessoas).
+      parameters:
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TelegramLeaveRequest'
+            examples:
+              stop:
+                value:
+                  chatId: '5123456789'
+      responses:
+        '200':
+          description: Contatos afetados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelegramLeaveResult'
+              examples:
+                left:
+                  value:
+                    result: left
+                    contactsAffected: 1
+                ignored:
+                  value:
+                    result: ignored
+                    contactsAffected: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    internalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: Chave compartilhada entre o BFF, a Function e os serviços (`INTERNAL_API_KEY`).
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: Id da conta (o `sub` do JWT), repassado pelo BFF.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      example: 01a15965-b480-79af-a113-29b2fc82e5ef
+    XCorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Identificador da operação de ponta a ponta. Vai também para os eventos.
+      schema:
+        type: string
+        maxLength: 100
+      example: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Chave gerada pelo front a cada tentativa nova (de preferência um UUID). Vale por 24 horas.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+      example: 9b2f6c1e-3d4a-4f5b-8c7d-6e5f4a3b2c1d
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      example: 01a15965-b480-79af-a113-29b2fc82e5ef
+    ContactId:
+      name: contactId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      example: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+    CheckInId:
+      name: checkInId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      example: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+    HelpRequestId:
+      name: helpRequestId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+      example: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      description: Token do convite (32 bytes em base64url)
+      schema:
+        $ref: '#/components/schemas/OpaqueToken'
+      example: jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+    ModeFilter:
+      name: mode
+      in: query
+      schema:
+        $ref: '#/components/schemas/Mode'
+      example: real
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+  headers:
+    Location:
+      description: Caminho do recurso criado
+      schema:
+        type: string
+      example: /contacts/01a1596c-1d20-7fdb-b978-4d0ae408d877
+  schemas:
+    Health:
+      type: object
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          example: safety-service
+        time:
+          type: string
+          format: date-time
+    Uuid:
+      type: string
+      format: uuid
+      example: 01a15965-b480-79af-a113-29b2fc82e5ef
+    OpaqueToken:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{43}$'
+      description: 32 bytes aleatórios em base64url, sem preenchimento
+      example: jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+    TelegramChatId:
+      type: string
+      pattern: '^-?[0-9]{1,20}$'
+      description: Id do chat do Telegram, em texto (pode passar do inteiro seguro do JavaScript)
+      example: '5123456789'
+    Email:
+      type: string
+      format: email
+      maxLength: 254
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 80
+    Password:
+      type: string
+      minLength: 8
+      maxLength: 128
+      format: password
+    SecretCode:
+      type: string
+      pattern: '^[0-9]{6,8}$'
+      description: 6 a 8 dígitos
+      example: '482915'
+    Mode:
+      type: string
+      enum: [real, test]
+    Account:
+      type: object
+      required: [id, email, displayName, secretCodeSet, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        email:
+          $ref: '#/components/schemas/Email'
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        secretCodeSet:
+          type: boolean
+          description: Se o código secreto já foi definido
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateAccountRequest:
+      type: object
+      required: [email, displayName, password]
+      properties:
+        email:
+          $ref: '#/components/schemas/Email'
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        password:
+          $ref: '#/components/schemas/Password'
+    AuthenticateAccountRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          $ref: '#/components/schemas/Email'
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+    UpdateAccountRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+    SetSecretCodeRequest:
+      type: object
+      required: [currentPassword, code]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 128
+          format: password
+        code:
+          $ref: '#/components/schemas/SecretCode'
+    VerifySecretCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          $ref: '#/components/schemas/SecretCode'
+    IssueRefreshTokenRequest:
+      type: object
+      required: [accountId]
+      properties:
+        accountId:
+          $ref: '#/components/schemas/Uuid'
+    RefreshTokenValue:
+      type: object
+      required: [token]
+      properties:
+        token:
+          $ref: '#/components/schemas/OpaqueToken'
+    RefreshToken:
+      type: object
+      required: [accountId, token, expiresAt]
+      properties:
+        accountId:
+          $ref: '#/components/schemas/Uuid'
+        token:
+          $ref: '#/components/schemas/OpaqueToken'
+        expiresAt:
+          type: string
+          format: date-time
+    ContactStatus:
+      type: string
+      enum: [pending, confirmed, declined]
+    ContactChannel:
+      type: string
+      enum: [telegram, web]
+    Contact:
+      type: object
+      required: [id, nickname, position, status, channel, inviteExpiresAt, respondedAt, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+        position:
+          type: integer
+          minimum: 1
+          description: Ordem de aviso (1 é o primeiro)
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+          description: Canal escolhido no aceite. `null` até lá.
+        inviteExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Validade do convite atual. `null` se ainda não houve convite.
+        respondedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ContactInput:
+      type: object
+      required: [nickname]
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 40
+    ContactList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Contact'
+    ReorderContactsRequest:
+      type: object
+      required: [contactIds]
+      properties:
+        contactIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Uuid'
+    Invitation:
+      type: object
+      required: [contactId, token, inviteUrl, telegramUrl, expiresAt]
+      properties:
+        contactId:
+          $ref: '#/components/schemas/Uuid'
+        token:
+          $ref: '#/components/schemas/OpaqueToken'
+        inviteUrl:
+          type: string
+          format: uri
+          description: '`INVITE_BASE_URL/<token>`: a página que o contato abre'
+        telegramUrl:
+          type: string
+          format: uri
+          description: '`https://t.me/<bot>?start=<token>`'
+        expiresAt:
+          type: string
+          format: date-time
+    InvitationView:
+      type: object
+      required: [inviterDisplayName, status, channel, expiresAt, respondable, telegramUrl]
+      properties:
+        inviterDisplayName:
+          $ref: '#/components/schemas/DisplayName'
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+        respondable:
+          type: boolean
+          description: Se ainda dá para aceitar ou recusar
+        telegramUrl:
+          type: string
+          format: uri
+    AcceptInvitationRequest:
+      type: object
+      required: [channel]
+      properties:
+        channel:
+          $ref: '#/components/schemas/ContactChannel'
+    InvitationAlerts:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [helpRequestId, message, publishedAt]
+            properties:
+              helpRequestId:
+                $ref: '#/components/schemas/Uuid'
+              message:
+                type: string
+              publishedAt:
+                type: string
+                format: date-time
+    AlertSettings:
+      type: object
+      required:
+        [messageTemplate, includeLocation, countdownSeconds, checkInToleranceMinutes, reviewed, reviewedAt]
+      properties:
+        messageTemplate:
+          $ref: '#/components/schemas/MessageTemplate'
+        includeLocation:
+          type: boolean
+        countdownSeconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+        checkInToleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        reviewed:
+          type: boolean
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateAlertSettingsRequest:
+      type: object
+      required: [messageTemplate, includeLocation, countdownSeconds, checkInToleranceMinutes]
+      properties:
+        messageTemplate:
+          $ref: '#/components/schemas/MessageTemplate'
+        includeLocation:
+          type: boolean
+        countdownSeconds:
+          type: integer
+          minimum: 5
+          maximum: 60
+        checkInToleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+    MessageTemplate:
+      type: string
+      minLength: 1
+      maxLength: 3800
+      description: |
+        Modelo com os marcadores `{apelido}`, `{nome}`, `{local}` e `{hora}`. O limite de 3.800 deixa
+        espaço para os valores preenchidos caberem nos 4.096 caracteres do Telegram.
+    CheckInStatus:
+      type: string
+      enum: [active, confirmed, cancelled, expired]
+    CheckIn:
+      type: object
+      required:
+        - id
+        - destination
+        - dueAt
+        - toleranceMinutes
+        - deadlineAt
+        - status
+        - mode
+        - version
+        - createdAt
+        - confirmedAt
+        - expiredAt
+        - helpRequestId
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 120
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+        deadlineAt:
+          type: string
+          format: date-time
+          description: '`dueAt` + tolerância'
+        status:
+          $ref: '#/components/schemas/CheckInStatus'
+        mode:
+          $ref: '#/components/schemas/Mode'
+        version:
+          type: integer
+          minimum: 1
+          description: Sobe a cada extensão
+        createdAt:
+          type: string
+          format: date-time
+        confirmedAt:
+          type: string
+          format: date-time
+          nullable: true
+        expiredAt:
+          type: string
+          format: date-time
+          nullable: true
+        helpRequestId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Pedido de ajuda criado quando o check-in venceu
+    StartCheckInRequest:
+      type: object
+      required: [destination, dueAt, mode]
+      properties:
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 120
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+          description: Padrão, o valor de `checkInToleranceMinutes` da mensagem
+        mode:
+          $ref: '#/components/schemas/Mode'
+    ExtendCheckInRequest:
+      type: object
+      required: [dueAt]
+      properties:
+        dueAt:
+          type: string
+          format: date-time
+        toleranceMinutes:
+          type: integer
+          minimum: 0
+          maximum: 60
+    CheckInPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckIn'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+    Location:
+      type: object
+      nullable: true
+      required: [lat, lng]
+      properties:
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lng:
+          type: number
+          minimum: -180
+          maximum: 180
+        accuracyMeters:
+          type: number
+          minimum: 0
+          nullable: true
+    TriggerHelpRequestRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          $ref: '#/components/schemas/Mode'
+        location:
+          $ref: '#/components/schemas/Location'
+    HelpRequestOrigin:
+      type: string
+      enum: [button, check_in]
+    HelpRequestStatus:
+      type: string
+      enum: [triggered, dispatched, cancelled, failed]
+    DeliveryStep:
+      type: object
+      required: [id, stepOrder, contactId, contactNickname, channel, outcome, message, errorCode, occurredAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        stepOrder:
+          type: integer
+          minimum: 1
+        contactId:
+          type: string
+          format: uuid
+          nullable: true
+          description: '`null` no passo `no_contacts`'
+        contactNickname:
+          type: string
+          nullable: true
+          description: Apelido no momento da leitura (`null` se o contato foi removido)
+        channel:
+          type: string
+          enum: [telegram, web, none]
+        outcome:
+          type: string
+          enum: [sent, published_web, would_send, failed, skipped_unconfirmed, no_contacts]
+        message:
+          type: string
+          nullable: true
+          description: Texto montado para o contato
+        errorCode:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+    HelpRequestSummary:
+      type: object
+      required: [id, origin, mode, status, createdAt, dispatchedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        origin:
+          $ref: '#/components/schemas/HelpRequestOrigin'
+        mode:
+          $ref: '#/components/schemas/Mode'
+        status:
+          $ref: '#/components/schemas/HelpRequestStatus'
+        createdAt:
+          type: string
+          format: date-time
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+    HelpRequest:
+      type: object
+      required: [id, origin, mode, status, location, checkInId, createdAt, dispatchedAt, steps]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        origin:
+          $ref: '#/components/schemas/HelpRequestOrigin'
+        mode:
+          $ref: '#/components/schemas/Mode'
+        status:
+          $ref: '#/components/schemas/HelpRequestStatus'
+        location:
+          $ref: '#/components/schemas/Location'
+        checkInId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        dispatchedAt:
+          type: string
+          format: date-time
+          nullable: true
+        steps:
+          type: array
+          description: Linha do tempo do envio, vazia enquanto `status` é `triggered`
+          items:
+            $ref: '#/components/schemas/DeliveryStep'
+    HelpRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HelpRequestSummary'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+    ContactSummary:
+      type: object
+      required: [id, nickname, position, status, channel]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        nickname:
+          type: string
+        position:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/ContactStatus'
+        channel:
+          type: string
+          enum: [telegram, web, null]
+          nullable: true
+    ActiveCheckInSummary:
+      type: object
+      nullable: true
+      required: [id, destination, dueAt, deadlineAt, status]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        destination:
+          type: string
+        dueAt:
+          type: string
+          format: date-time
+        deadlineAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active]
+    LastTestSummary:
+      type: object
+      nullable: true
+      required: [helpRequestId, at, outcome]
+      properties:
+        helpRequestId:
+          $ref: '#/components/schemas/Uuid'
+        at:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          enum: [ok, failed, pending]
+          description: '`ok` quando o teste terminou `dispatched`, `pending` enquanto está `triggered`'
+    SafetySummary:
+      type: object
+      required: [displayName, secretCodeSet, network, alertSettings, activeCheckIn, lastTest]
+      properties:
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        secretCodeSet:
+          type: boolean
+        network:
+          type: object
+          required: [total, confirmed, pending, declined, contacts]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+            confirmed:
+              type: integer
+              minimum: 0
+            pending:
+              type: integer
+              minimum: 0
+            declined:
+              type: integer
+              minimum: 0
+            contacts:
+              type: array
+              items:
+                $ref: '#/components/schemas/ContactSummary'
+        alertSettings:
+          type: object
+          required: [messageTemplate, includeLocation, countdownSeconds, reviewed]
+          properties:
+            messageTemplate:
+              $ref: '#/components/schemas/MessageTemplate'
+            includeLocation:
+              type: boolean
+            countdownSeconds:
+              type: integer
+              minimum: 5
+              maximum: 60
+            reviewed:
+              type: boolean
+        activeCheckIn:
+          $ref: '#/components/schemas/ActiveCheckInSummary'
+        lastTest:
+          $ref: '#/components/schemas/LastTestSummary'
+    ExpireCheckInRequest:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+    ExpireCheckInResult:
+      type: object
+      required: [result, helpRequestId]
+      properties:
+        result:
+          type: string
+          enum: [expired, ignored]
+        helpRequestId:
+          type: string
+          format: uuid
+          nullable: true
+    DeliveryTargets:
+      type: object
+      required: [helpRequestId, accountId, mode, targets, recordedSteps]
+      properties:
+        helpRequestId:
+          $ref: '#/components/schemas/Uuid'
+        accountId:
+          $ref: '#/components/schemas/Uuid'
+        mode:
+          $ref: '#/components/schemas/Mode'
+        targets:
+          type: array
+          description: Só os contatos confirmados, na ordem de aviso
+          items:
+            type: object
+            required: [contactId, nickname, position, channel, telegramChatId]
+            properties:
+              contactId:
+                $ref: '#/components/schemas/Uuid'
+              nickname:
+                type: string
+              position:
+                type: integer
+                minimum: 1
+              channel:
+                $ref: '#/components/schemas/ContactChannel'
+              telegramChatId:
+                type: string
+                pattern: '^-?[0-9]{1,20}$'
+                nullable: true
+                description: Só no canal `telegram`
+        recordedSteps:
+          type: array
+          description: Passos já gravados deste pedido (reprocessamento)
+          items:
+            type: object
+            required: [contactId, outcome]
+            properties:
+              contactId:
+                type: string
+                format: uuid
+                nullable: true
+              outcome:
+                type: string
+                enum: [sent, published_web, would_send, failed, skipped_unconfirmed, no_contacts]
+    TelegramLinkRequest:
+      type: object
+      required: [token, chatId]
+      properties:
+        token:
+          $ref: '#/components/schemas/OpaqueToken'
+        chatId:
+          $ref: '#/components/schemas/TelegramChatId'
+    TelegramLinkResult:
+      type: object
+      required: [result, inviterDisplayName]
+      properties:
+        result:
+          type: string
+          enum: [linked, ignored]
+        inviterDisplayName:
+          type: string
+          nullable: true
+          description: Nome usado na resposta do bot ("Pronto, você faz parte da rede de apoio de ...")
+    TelegramLeaveRequest:
+      type: object
+      required: [chatId]
+      properties:
+        chatId:
+          $ref: '#/components/schemas/TelegramChatId'
+    TelegramLeaveResult:
+      type: object
+      required: [result, contactsAffected]
+      properties:
+        result:
+          type: string
+          enum: [left, ignored]
+        contactsAffected:
+          type: integer
+          minimum: 0
+    ProblemDetails:
+      type: object
+      description: Erro no formato RFC 9457, com o `code` estável para o cliente decidir o que fazer
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHENTICATED
+            - NOT_FOUND
+            - INVALID_STATE
+            - EMAIL_IN_USE
+            - INVITATION_EXPIRED
+            - INTERNAL_ERROR
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+  responses:
+    ValidationFailed:
+      description: Corpo ou parâmetros inválidos
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            validation:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                detail: O campo nickname tem mais de 40 caracteres.
+                instance: /contacts
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+                errors:
+                  - field: nickname
+                    message: máximo de 40 caracteres
+    Unauthenticated:
+      description: '`X-Internal-Key` ausente ou inválida'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            unauthenticated:
+              value:
+                type: /errors/unauthenticated
+                title: Não autenticado
+                status: 401
+                code: UNAUTHENTICATED
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvalidCredentials:
+      description: Credencial errada. Senha errada, código errado e conta bloqueada recebem esta mesma resposta.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            invalid:
+              value:
+                type: /errors/unauthenticated
+                title: Não autenticado
+                status: 401
+                code: UNAUTHENTICATED
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    NotFound:
+      description: O recurso não existe ou é de outra conta (a resposta não diz qual dos dois)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            notFound:
+              value:
+                type: /errors/not-found
+                title: Não encontrado
+                status: 404
+                code: NOT_FOUND
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    EmailInUse:
+      description: Já existe uma conta com este e-mail
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            emailInUse:
+              value:
+                type: /errors/email-in-use
+                title: E-mail já cadastrado
+                status: 409
+                code: EMAIL_IN_USE
+                instance: /accounts
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    TooManyContacts:
+      description: A rede já tem 10 contatos
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            limit:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: A rede de apoio já tem 10 contatos.
+                instance: /contacts
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    CheckInAlreadyActive:
+      description: Já existe um check-in ativo neste modo
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            active:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: Já existe um check-in ativo.
+                instance: /check-ins
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    CheckInNotActive:
+      description: O check-in não está mais ativo (venceu, foi confirmado ou cancelado)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            expired:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: O check-in já venceu.
+                instance: /check-ins/01a1b2e0-3300-7abf-90bf-07d69a5799b9/confirm
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    HelpRequestNotCancellable:
+      description: O pedido já foi cancelado ou falhou
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            cancelled:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: O pedido já foi cancelado.
+                instance: /help-requests/01a1b2e9-6678-7ead-96cd-77eeda864fb3/cancel
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvitationAlreadyAnswered:
+      description: O convite já foi respondido
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            answered:
+              value:
+                type: /errors/invalid-state
+                title: Operação não permitida agora
+                status: 409
+                code: INVALID_STATE
+                detail: Este convite já foi respondido.
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InvitationExpired:
+      description: O convite venceu sem resposta (72 horas)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            expired:
+              value:
+                type: /errors/invitation-expired
+                title: Convite vencido
+                status: 410
+                code: INVITATION_EXPIRED
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InternalError:
+      description: Erro inesperado, sem detalhes
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            internal:
+              value:
+                type: /errors/internal-error
+                title: Erro interno
+                status: 500
+                code: INTERNAL_ERROR
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+  examples:
+    Account:
+      summary: Conta com código definido
+      value:
+        id: 01a15965-b480-79af-a113-29b2fc82e5ef
+        email: maria.exemplo@example.com
+        displayName: Maria
+        secretCodeSet: true
+        createdAt: '2026-10-20T13:00:00Z'
+        updatedAt: '2026-10-20T13:20:00Z'
+    NewAccount:
+      summary: Conta recém-criada
+      value:
+        id: 01a15965-b480-79af-a113-29b2fc82e5ef
+        email: maria.exemplo@example.com
+        displayName: Maria
+        secretCodeSet: false
+        createdAt: '2026-10-20T13:00:00Z'
+        updatedAt: '2026-10-20T13:00:00Z'
+    ContactAna:
+      summary: Confirmada pelo Telegram
+      value:
+        id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+        nickname: Ana
+        position: 1
+        status: confirmed
+        channel: telegram
+        inviteExpiresAt: '2026-10-23T13:10:00Z'
+        respondedAt: '2026-10-20T14:02:00Z'
+        createdAt: '2026-10-20T13:05:00Z'
+    ContactCarlaNew:
+      summary: Recém-adicionada, sem convite
+      value:
+        id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+        nickname: Carla
+        position: 3
+        status: pending
+        channel: null
+        inviteExpiresAt: null
+        respondedAt: null
+        createdAt: '2026-10-20T13:07:00Z'
+    ContactList:
+      summary: Rede com 3 contatos
+      value:
+        items:
+          - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            nickname: Ana
+            position: 1
+            status: confirmed
+            channel: telegram
+            inviteExpiresAt: '2026-10-23T13:10:00Z'
+            respondedAt: '2026-10-20T14:02:00Z'
+            createdAt: '2026-10-20T13:05:00Z'
+          - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            nickname: Beto
+            position: 2
+            status: confirmed
+            channel: web
+            inviteExpiresAt: '2026-10-23T13:11:00Z'
+            respondedAt: '2026-10-21T09:30:00Z'
+            createdAt: '2026-10-20T13:06:00Z'
+          - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            nickname: Carla
+            position: 3
+            status: pending
+            channel: null
+            inviteExpiresAt: '2026-11-09T22:10:00Z'
+            respondedAt: null
+            createdAt: '2026-10-20T13:07:00Z'
+    ContactListReordered:
+      summary: Beto passou para o primeiro lugar
+      value:
+        items:
+          - id: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            nickname: Beto
+            position: 1
+            status: confirmed
+            channel: web
+            inviteExpiresAt: '2026-10-23T13:11:00Z'
+            respondedAt: '2026-10-21T09:30:00Z'
+            createdAt: '2026-10-20T13:06:00Z'
+          - id: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            nickname: Ana
+            position: 2
+            status: confirmed
+            channel: telegram
+            inviteExpiresAt: '2026-10-23T13:10:00Z'
+            respondedAt: '2026-10-20T14:02:00Z'
+            createdAt: '2026-10-20T13:05:00Z'
+          - id: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            nickname: Carla
+            position: 3
+            status: pending
+            channel: null
+            inviteExpiresAt: '2026-11-09T22:10:00Z'
+            respondedAt: null
+            createdAt: '2026-10-20T13:07:00Z'
+    InvitationCarla:
+      summary: Convite novo
+      value:
+        contactId: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+        token: jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        inviteUrl: http://localhost:5173/c/jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+        expiresAt: '2026-11-09T22:10:00Z'
+    InvitationViewPending:
+      summary: Aguardando resposta
+      value:
+        inviterDisplayName: Maria
+        status: pending
+        channel: null
+        expiresAt: '2026-11-09T22:10:00Z'
+        respondable: true
+        telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+    InvitationViewTelegramChosen:
+      summary: Escolheu o Telegram e ainda não tocou em Iniciar
+      value:
+        inviterDisplayName: Maria
+        status: pending
+        channel: telegram
+        expiresAt: '2026-11-09T22:10:00Z'
+        respondable: true
+        telegramUrl: https://t.me/ghosty_dev_bot?start=jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag
+    InvitationViewWeb:
+      summary: Aceito pelo navegador
+      value:
+        inviterDisplayName: Maria
+        status: confirmed
+        channel: web
+        expiresAt: '2026-10-23T13:11:00Z'
+        respondable: false
+        telegramUrl: https://t.me/ghosty_dev_bot?start=lSBqmnsXmI4nn3PTzmSD6QmL-QQyvogzSO__I8RcxFA
+    InvitationAlerts:
+      summary: Um aviso recebido
+      value:
+        items:
+          - helpRequestId: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+            message: 'Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+            publishedAt: '2026-11-06T22:10:06Z'
+    AlertSettings:
+      summary: Mensagem revisada
+      value:
+        messageTemplate: Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.
+        includeLocation: true
+        countdownSeconds: 10
+        checkInToleranceMinutes: 10
+        reviewed: true
+        reviewedAt: '2026-10-20T13:15:00Z'
+    CheckInActive:
+      summary: Check-in ativo
+      value:
+        id: 01a1b2e0-3300-7abf-90bf-07d69a5799b9
+        destination: Casa
+        dueAt: '2026-11-07T02:30:00Z'
+        toleranceMinutes: 10
+        deadlineAt: '2026-11-07T02:40:00Z'
+        status: active
+        mode: real
+        version: 1
+        createdAt: '2026-11-06T22:00:00Z'
+        confirmedAt: null
+        expiredAt: null
+        helpRequestId: null
+    HelpRequestTriggered:
+      summary: Recém-disparado, ainda sem envio
+      value:
+        id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+        origin: button
+        mode: real
+        status: triggered
+        location:
+          lat: -23.5505
+          lng: -46.6333
+          accuracyMeters: 20
+        checkInId: null
+        createdAt: '2026-11-06T22:10:03Z'
+        dispatchedAt: null
+        steps: []
+    HelpRequestDispatched:
+      summary: Enviado, com a linha do tempo
+      value:
+        id: 01a1b2e9-6678-7ead-96cd-77eeda864fb3
+        origin: button
+        mode: real
+        status: dispatched
+        location:
+          lat: -23.5505
+          lng: -46.6333
+          accuracyMeters: 20
+        checkInId: null
+        createdAt: '2026-11-06T22:10:03Z'
+        dispatchedAt: '2026-11-06T22:10:06Z'
+        steps:
+          - id: 01a1b2e9-6e48-797f-9e3b-0ab388674b42
+            stepOrder: 1
+            contactId: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            contactNickname: Ana
+            channel: telegram
+            outcome: sent
+            message: 'Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:05Z'
+          - id: 01a1b2e9-7230-799c-b29f-d2d2e3f41f19
+            stepOrder: 2
+            contactId: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            contactNickname: Beto
+            channel: web
+            outcome: published_web
+            message: 'Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.'
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:06Z'
+          - id: 01a1b2e9-7230-7b32-924b-5ba12385f4db
+            stepOrder: 3
+            contactId: 01a1596c-1d20-7fdb-b978-4d0ae408d877
+            contactNickname: Carla
+            channel: none
+            outcome: skipped_unconfirmed
+            message: null
+            errorCode: null
+            occurredAt: '2026-11-06T22:10:06Z'
+    HelpRequestSafeTest:
+      summary: Teste seguro por check-in, nada enviado
+      value:
+        id: 01a1a36e-f3c0-7caf-bd64-8393b2c11fa5
+        origin: check_in
+        mode: test
+        status: dispatched
+        location: null
+        checkInId: 01a1a36d-1f00-7e6c-b81e-9016d97753a5
+        createdAt: '2026-11-03T22:02:00Z'
+        dispatchedAt: '2026-11-03T22:02:05Z'
+        steps:
+          - id: 01a1a36f-0360-71b6-8644-3baaae682176
+            stepOrder: 1
+            contactId: 01a1596a-4860-7d3c-971c-a474b56c7ce7
+            contactNickname: Ana
+            channel: telegram
+            outcome: would_send
+            message: Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.
+            errorCode: null
+            occurredAt: '2026-11-03T22:02:04Z'
+          - id: 01a1a36f-0360-7f53-b4bf-71d4d781c70d
+            stepOrder: 2
+            contactId: 01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2
+            contactNickname: Beto
+            channel: web
+            outcome: would_send
+            message: Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:02.
+            errorCode: null
+            occurredAt: '2026-11-03T22:02:04Z'

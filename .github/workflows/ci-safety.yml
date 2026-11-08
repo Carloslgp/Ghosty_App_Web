@@ -1,0 +1,39 @@
+name: ci-safety
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-safety-service/**'
+      - 'ghosty-docs/contracts/safety-service.openapi.yaml'
+      - 'ghosty-docs/asyncapi/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-safety.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-safety-service/**'
+      - 'ghosty-docs/contracts/safety-service.openapi.yaml'
+      - 'ghosty-docs/asyncapi/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-safety.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-safety-service
+      docker: true

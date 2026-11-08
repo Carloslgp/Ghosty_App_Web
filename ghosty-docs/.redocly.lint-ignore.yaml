@@ -1,0 +1,13 @@
+# Exceções conscientes ao lint dos contratos.
+# O /health não tem resposta 4xx: ou o serviço responde 200, ou não responde.
+contracts/notes-service.openapi.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+contracts/safety-service.openapi.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+contracts/bff.openapi.yaml:
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+    - '#/paths/~1.well-known~1openid-configuration/get/responses'
+    - '#/paths/~1.well-known~1jwks.json/get/responses'

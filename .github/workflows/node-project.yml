@@ -1,0 +1,91 @@
+# Workflow reutilizável: valida um projeto Node do monorepo.
+# Chamado pelos ci-*.yml, um por pasta.
+name: node-project
+
+on:
+  workflow_call:
+    inputs:
+      project-dir:
+        description: 'Pasta do projeto (ex.: ghosty-bff)'
+        required: true
+        type: string
+      scripts:
+        description: Scripts do npm a rodar, na ordem, separados por espaço
+        required: false
+        type: string
+        default: lint typecheck test build
+      docker:
+        description: Faz o build da imagem, sem publicar, quando o projeto tem Dockerfile
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ${{ inputs.project-dir }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ inputs.project-dir }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configuração compartilhada em dia
+        working-directory: .
+        run: node config/sync.mjs --check "${{ inputs.project-dir }}"
+
+      - name: Projeto ainda sem package-lock.json
+        if: hashFiles(format('{0}/package-lock.json', inputs.project-dir)) == ''
+        run: echo "::notice title=${{ inputs.project-dir }}::Ainda sem package-lock.json. As etapas de Node passam a valer quando o projeto for criado."
+
+      - uses: actions/setup-node@v7
+        if: hashFiles(format('{0}/package-lock.json', inputs.project-dir)) != ''
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ inputs.project-dir }}/package-lock.json
+
+      - name: npm ci
+        if: hashFiles(format('{0}/package-lock.json', inputs.project-dir)) != ''
+        run: npm ci
+
+      - name: npm run ${{ inputs.scripts }}
+        if: hashFiles(format('{0}/package-lock.json', inputs.project-dir)) != ''
+        env:
+          SCRIPTS: ${{ inputs.scripts }}
+        run: |
+          for script in $SCRIPTS; do
+            echo "::group::npm run $script"
+            npm run "$script"
+            echo "::endgroup::"
+          done
+
+  docker:
+    name: ${{ inputs.project-dir }} (imagem)
+    if: inputs.docker
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Projeto ainda sem Dockerfile ou package-lock.json
+        if: hashFiles(format('{0}/Dockerfile', inputs.project-dir)) == '' || hashFiles(format('{0}/package-lock.json', inputs.project-dir)) == ''
+        run: echo "::notice title=${{ inputs.project-dir }}::Build da imagem pulado até o projeto ter Dockerfile e package-lock.json."
+
+      - uses: docker/setup-buildx-action@v4
+        if: hashFiles(format('{0}/Dockerfile', inputs.project-dir)) != '' && hashFiles(format('{0}/package-lock.json', inputs.project-dir)) != ''
+
+      - name: Build da imagem (sem publicar)
+        if: hashFiles(format('{0}/Dockerfile', inputs.project-dir)) != '' && hashFiles(format('{0}/package-lock.json', inputs.project-dir)) != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.project-dir }}
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=${{ inputs.project-dir }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.project-dir }}
