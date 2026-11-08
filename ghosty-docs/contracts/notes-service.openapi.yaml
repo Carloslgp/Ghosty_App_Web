@@ -1,0 +1,943 @@
+openapi: 3.0.3
+info:
+  title: notes-service
+  version: 0.1.0
+  description: |
+    Microserviço do domínio **Notas** (a fachada do app), com MongoDB.
+
+    - Só é chamado pelo BFF. Toda rota, exceto `/health`, exige `X-Internal-Key`.
+    - As rotas de notas exigem `X-User-Id` (id da conta, repassado pelo BFF a partir do JWT).
+      Uma nota de outra conta responde 404, como se não existisse.
+    - IDs das notas são o ObjectId do MongoDB em texto (24 caracteres hexadecimais).
+      Os itens de checklist usam UUID v7.
+    - Datas em ISO 8601, sempre em UTC.
+    - Erros em `application/problem+json` (RFC 9457), com o campo `code`.
+    - Toda alteração incrementa `version`. O `PUT` exige a versão atual e responde 409 se ela for antiga.
+servers:
+  - url: http://localhost:3001
+    description: Máquina local
+  - url: http://localhost:4011
+    description: Mock (Prism)
+tags:
+  - name: notes
+    description: Notas de texto e checklists
+  - name: health
+    description: Situação do serviço
+security:
+  - internalKey: []
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Situação do serviço
+      description: Não consulta o banco. Serve para o healthcheck do container.
+      security: []
+      responses:
+        '200':
+          description: Serviço no ar
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: notes-service
+                    time: '2026-11-06T22:10:00Z'
+  /notes:
+    post:
+      tags: [notes]
+      operationId: createNote
+      summary: Cria uma nota
+      description: |
+        Precisa de título ou conteúdo. Nota `text` usa `body` e não aceita `items`.
+        Nota `checklist` usa `items` e não aceita `body`. Os itens recebem `id` no servidor.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteRequest'
+            examples:
+              text:
+                summary: Nota de texto
+                value:
+                  kind: text
+                  title: Dentista quinta 14h
+                  body: Levar a carteirinha do convênio.
+                  color: blue
+                  labels: [saúde]
+                  reminderAt: '2026-11-12T17:00:00Z'
+              checklist:
+                summary: Checklist
+                value:
+                  kind: checklist
+                  title: Lista do mercado
+                  items:
+                    - text: pão
+                    - text: leite
+                    - text: café
+                      done: true
+                  color: yellow
+                  labels: [casa]
+                  pinned: true
+      responses:
+        '201':
+          description: Nota criada
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                text:
+                  $ref: '#/components/examples/TextNote'
+                checklist:
+                  $ref: '#/components/examples/ChecklistNote'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [notes]
+      operationId: listNotes
+      summary: Lista as notas da conta
+      description: Ordem padrão, fixadas primeiro e depois `updatedAt` decrescente.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - $ref: '#/components/parameters/Archived'
+        - $ref: '#/components/parameters/Label'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Uma página de notas
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotePage'
+              examples:
+                page:
+                  $ref: '#/components/examples/NotePage'
+                empty:
+                  summary: Conta sem notas
+                  value:
+                    items: []
+                    page: 1
+                    pageSize: 20
+                    total: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [notes]
+      operationId: deleteAllNotesOfOwner
+      summary: Apaga todas as notas da conta
+      description: Usada na exclusão da conta (direito de exclusão). É idempotente.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+      responses:
+        '204':
+          description: Notas apagadas (ou já não havia nenhuma)
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notes/summary:
+    get:
+      tags: [notes]
+      operationId: getNotesSummary
+      summary: Resumo das notas para o painel
+      description: |
+        Usado pelo `GET /aggregated-data` do BFF. "Lembretes de hoje" considera o dia no fuso
+        informado em `timezone`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XCorrelationId'
+        - name: timezone
+          in: query
+          description: Fuso horário IANA usado para definir "hoje"
+          schema:
+            type: string
+            default: America/Sao_Paulo
+            maxLength: 64
+          example: America/Sao_Paulo
+      responses:
+        '200':
+          description: Totais da conta
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotesSummary'
+              examples:
+                summary:
+                  value:
+                    total: 14
+                    pinned: 2
+                    archived: 3
+                    updatedLast14Days: 5
+                    remindersToday: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /notes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+      - $ref: '#/components/parameters/XUserId'
+      - $ref: '#/components/parameters/XCorrelationId'
+    get:
+      tags: [notes]
+      operationId: getNote
+      summary: Busca uma nota
+      responses:
+        '200':
+          description: A nota
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                checklist:
+                  $ref: '#/components/examples/ChecklistNote'
+                text:
+                  $ref: '#/components/examples/TextNote'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [notes]
+      operationId: updateNote
+      summary: Substitui a nota inteira
+      description: |
+        Exige a `version` atual. Com versão antiga, responde 409 `VERSION_CONFLICT` e não altera nada.
+        Mudar `kind` aqui substitui o conteúdo pelo que foi enviado. Para converter preservando
+        o texto, use o `PATCH` com `kind`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNoteRequest'
+            examples:
+              checklist:
+                value:
+                  version: 3
+                  kind: checklist
+                  title: Lista do mercado
+                  items:
+                    - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+                      text: pão
+                      done: true
+                    - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+                      text: leite integral
+                      done: false
+                    - text: manteiga
+                  color: yellow
+                  labels: [casa]
+                  pinned: true
+                  archived: false
+                  reminderAt: null
+      responses:
+        '200':
+          description: Nota atualizada, com `version` incrementada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                checklist:
+                  $ref: '#/components/examples/ChecklistNoteUpdated'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/VersionConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [notes]
+      operationId: patchNote
+      summary: Altera campos da nota
+      description: |
+        Campos parciais: fixar, arquivar, cor, etiquetas, lembrete, título, marcar um item
+        ou converter o tipo. A `version` é opcional. Se vier, é conferida (409 se for antiga).
+
+        Conversão (`kind`): de `text` para `checklist`, cada linha não vazia do `body` vira um item.
+        De `checklist` para `text`, os itens viram linhas do `body`, na ordem. O texto é preservado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchNoteRequest'
+            examples:
+              pin:
+                summary: Fixar
+                value:
+                  pinned: true
+              checkItem:
+                summary: Marcar um item
+                value:
+                  item:
+                    id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+                    done: true
+              convert:
+                summary: Converter em checklist
+                value:
+                  kind: checklist
+                  version: 1
+      responses:
+        '200':
+          description: Nota alterada, com `version` incrementada
+          headers:
+            X-Correlation-Id:
+              $ref: '#/components/headers/XCorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+              examples:
+                checklist:
+                  $ref: '#/components/examples/ChecklistNoteUpdated'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/VersionConflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [notes]
+      operationId: deleteNote
+      summary: Apaga uma nota
+      responses:
+        '204':
+          description: Nota apagada
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    internalKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Key
+      description: Chave compartilhada entre o BFF e os serviços internos (`INTERNAL_API_KEY`).
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: Id da conta (o `sub` do JWT), repassado pelo BFF.
+      schema:
+        type: string
+        format: uuid
+      example: 01a15965-b480-79af-a113-29b2fc82e5ef
+    XCorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Identificador da operação de ponta a ponta. Se não vier, o serviço gera um.
+      schema:
+        type: string
+        maxLength: 100
+      example: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    NoteId:
+      name: id
+      in: path
+      required: true
+      description: ObjectId da nota
+      schema:
+        $ref: '#/components/schemas/NoteId'
+      example: 6aec6fc05bd053a2e3d78b78
+    Archived:
+      name: archived
+      in: query
+      description: '`false` lista as notas ativas, `true` lista as arquivadas'
+      schema:
+        type: boolean
+        default: false
+      example: false
+    Label:
+      name: label
+      in: query
+      description: Filtra pela etiqueta
+      schema:
+        $ref: '#/components/schemas/Label'
+      example: casa
+    Query:
+      name: q
+      in: query
+      description: Busca no título, no texto e nos itens (sem diferenciar maiúsculas)
+      schema:
+        type: string
+        maxLength: 100
+      example: mercado
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      example: 1
+    PageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+  headers:
+    Location:
+      description: Caminho do recurso criado
+      schema:
+        type: string
+      example: /notes/6aec6fc05bd053a2e3d78b78
+    XCorrelationId:
+      description: O mesmo `X-Correlation-Id` da requisição (ou o gerado pelo serviço)
+      schema:
+        type: string
+      example: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+  schemas:
+    Health:
+      type: object
+      required: [status, service, time]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          example: notes-service
+        time:
+          type: string
+          format: date-time
+    NoteId:
+      type: string
+      pattern: '^[0-9a-f]{24}$'
+      example: 6aec6fc05bd053a2e3d78b78
+    NoteKind:
+      type: string
+      enum: [text, checklist]
+    NoteColor:
+      type: string
+      enum: [default, yellow, green, blue, pink, gray]
+    Label:
+      type: string
+      minLength: 1
+      maxLength: 30
+    Title:
+      type: string
+      maxLength: 200
+      description: Pode ser vazio se a nota tiver conteúdo
+    Body:
+      type: string
+      maxLength: 20000
+      description: Só em notas `text`
+    ChecklistItem:
+      type: object
+      required: [id, text, done]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        done:
+          type: boolean
+    ChecklistItemInput:
+      type: object
+      required: [text]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id de um item que já existe. Sem `id`, o item é novo.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+        done:
+          type: boolean
+          default: false
+    Note:
+      type: object
+      required:
+        [id, ownerId, kind, title, color, labels, pinned, archived, reminderAt, createdAt, updatedAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/NoteId'
+        ownerId:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          $ref: '#/components/schemas/Title'
+        body:
+          $ref: '#/components/schemas/Body'
+        items:
+          type: array
+          description: Só em notas `checklist`
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+          description: Sobe a cada alteração (concorrência otimista)
+    CreateNoteRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          $ref: '#/components/schemas/Title'
+        body:
+          $ref: '#/components/schemas/Body'
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ChecklistItemInput'
+        color:
+          allOf:
+            - $ref: '#/components/schemas/NoteColor'
+          default: default
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+          default: false
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+    UpdateNoteRequest:
+      type: object
+      required: [version, kind, title, color, labels, pinned, archived, reminderAt]
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: A versão que o cliente leu
+        kind:
+          $ref: '#/components/schemas/NoteKind'
+        title:
+          $ref: '#/components/schemas/Title'
+        body:
+          $ref: '#/components/schemas/Body'
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/ChecklistItemInput'
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+    PatchNoteRequest:
+      type: object
+      minProperties: 1
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: Opcional. Se vier, é conferida.
+        title:
+          $ref: '#/components/schemas/Title'
+        kind:
+          allOf:
+            - $ref: '#/components/schemas/NoteKind'
+          description: Converte o tipo preservando o texto
+        pinned:
+          type: boolean
+        archived:
+          type: boolean
+        color:
+          $ref: '#/components/schemas/NoteColor'
+        labels:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Label'
+        reminderAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: '`null` remove o lembrete'
+        item:
+          type: object
+          description: Marca ou desmarca um item do checklist
+          required: [id, done]
+          properties:
+            id:
+              type: string
+              format: uuid
+            done:
+              type: boolean
+    NotePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        total:
+          type: integer
+          minimum: 0
+    NotesSummary:
+      type: object
+      required: [total, pinned, archived, updatedLast14Days, remindersToday]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+          description: Notas não arquivadas
+        pinned:
+          type: integer
+          minimum: 0
+        archived:
+          type: integer
+          minimum: 0
+        updatedLast14Days:
+          type: integer
+          minimum: 0
+        remindersToday:
+          type: integer
+          minimum: 0
+    ProblemDetails:
+      type: object
+      description: Erro no formato RFC 9457, com o `code` estável para o cliente decidir o que fazer
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          example: /errors/validation-failed
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          enum:
+            [VALIDATION_FAILED, UNAUTHENTICATED, NOT_FOUND, VERSION_CONFLICT, INVALID_STATE, INTERNAL_ERROR]
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+  responses:
+    ValidationFailed:
+      description: Corpo ou parâmetros inválidos, ou regra da nota violada
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            validation:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                detail: O campo title tem mais de 200 caracteres.
+                instance: /notes
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+                errors:
+                  - field: title
+                    message: máximo de 200 caracteres
+            empty:
+              value:
+                type: /errors/validation-failed
+                title: Dados inválidos
+                status: 400
+                code: VALIDATION_FAILED
+                detail: A nota precisa de título ou conteúdo.
+                instance: /notes
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    Unauthenticated:
+      description: '`X-Internal-Key` ausente ou inválida'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            unauthenticated:
+              value:
+                type: /errors/unauthenticated
+                title: Não autenticado
+                status: 401
+                code: UNAUTHENTICATED
+                instance: /notes
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    NotFound:
+      description: A nota não existe ou é de outra conta (a resposta não diz qual dos dois)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            notFound:
+              value:
+                type: /errors/not-found
+                title: Não encontrado
+                status: 404
+                code: NOT_FOUND
+                instance: /notes/6aec6fc05bd053a2e3d78b78
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    VersionConflict:
+      description: A versão enviada é antiga. O cliente deve recarregar a nota.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            conflict:
+              value:
+                type: /errors/version-conflict
+                title: Versão desatualizada
+                status: 409
+                code: VERSION_CONFLICT
+                detail: A nota foi alterada depois da versão 3. Versão atual 4.
+                instance: /notes/6aec6fc05bd053a2e3d78b78
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+    InternalError:
+      description: Erro inesperado, sem detalhes
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            internal:
+              value:
+                type: /errors/internal-error
+                title: Erro interno
+                status: 500
+                code: INTERNAL_ERROR
+                correlationId: 01a1b2e9-6290-7765-80a9-717fa4f6dfff
+  examples:
+    TextNote:
+      summary: Nota de texto
+      value:
+        id: 6aeb05a4403720b7964ada4c
+        ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+        kind: text
+        title: Dentista quinta 14h
+        body: Levar a carteirinha do convênio.
+        color: blue
+        labels: [saúde]
+        pinned: false
+        archived: false
+        reminderAt: '2026-11-12T17:00:00Z'
+        createdAt: '2026-11-04T10:15:00Z'
+        updatedAt: '2026-11-04T10:15:00Z'
+        version: 1
+    ChecklistNote:
+      summary: Checklist
+      value:
+        id: 6aec6fc05bd053a2e3d78b78
+        ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+        kind: checklist
+        title: Lista do mercado
+        items:
+          - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+            text: pão
+            done: false
+          - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+            text: leite
+            done: false
+          - id: 01a1ab94-8dd0-7279-9e9c-fc4036787ae0
+            text: café
+            done: true
+        color: yellow
+        labels: [casa]
+        pinned: true
+        archived: false
+        reminderAt: null
+        createdAt: '2026-11-05T12:00:00Z'
+        updatedAt: '2026-11-05T12:00:00Z'
+        version: 1
+    ChecklistNoteUpdated:
+      summary: Checklist depois da alteração
+      value:
+        id: 6aec6fc05bd053a2e3d78b78
+        ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+        kind: checklist
+        title: Lista do mercado
+        items:
+          - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+            text: pão
+            done: true
+          - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+            text: leite integral
+            done: false
+          - id: 01a1b2e9-7230-7b32-924b-5ba12385f4db
+            text: manteiga
+            done: false
+        color: yellow
+        labels: [casa]
+        pinned: true
+        archived: false
+        reminderAt: null
+        createdAt: '2026-11-05T12:00:00Z'
+        updatedAt: '2026-11-06T22:10:00Z'
+        version: 4
+    NotePage:
+      summary: Primeira página
+      value:
+        items:
+          - id: 6aec6fc05bd053a2e3d78b78
+            ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+            kind: checklist
+            title: Lista do mercado
+            items:
+              - id: 01a1ab94-8600-70de-85cf-24f12763c4f4
+                text: pão
+                done: false
+              - id: 01a1ab94-89e8-7df8-90e4-100f3bb07132
+                text: leite
+                done: false
+            color: yellow
+            labels: [casa]
+            pinned: true
+            archived: false
+            reminderAt: null
+            createdAt: '2026-11-05T12:00:00Z'
+            updatedAt: '2026-11-05T12:00:00Z'
+            version: 1
+          - id: 6aeb05a4403720b7964ada4c
+            ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+            kind: text
+            title: Dentista quinta 14h
+            body: Levar a carteirinha do convênio.
+            color: blue
+            labels: [saúde]
+            pinned: false
+            archived: false
+            reminderAt: '2026-11-12T17:00:00Z'
+            createdAt: '2026-11-04T10:15:00Z'
+            updatedAt: '2026-11-04T10:15:00Z'
+            version: 1
+          - id: 6ae7852896143495713a897b
+            ownerId: 01a15965-b480-79af-a113-29b2fc82e5ef
+            kind: text
+            title: Ideias de presente
+            body: |-
+              Mãe: livro de receitas
+              Pai: fone sem fio
+            color: default
+            labels: []
+            pinned: false
+            archived: false
+            reminderAt: null
+            createdAt: '2026-11-01T18:30:00Z'
+            updatedAt: '2026-11-01T18:30:00Z'
+            version: 2
+        page: 1
+        pageSize: 20
+        total: 3

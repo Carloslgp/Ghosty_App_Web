@@ -2,7 +2,7 @@
 
 Microserviço do domínio **Notas** do Ghosty, com MongoDB Atlas.
 
-> **Status:** estrutura inicial. A implementação começa na Sprint 1.
+> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
 
 ## Sobre o Ghosty
 
@@ -47,6 +47,12 @@ src/
 
 As regras de dependência entre as camadas são verificadas por testes de arquitetura.
 
+## Contrato e mock
+
+O contrato v0 deste projeto está em [`ghosty-docs/contracts/notes-service.openapi.yaml`](../ghosty-docs/contracts/notes-service.openapi.yaml), com exemplos em cada operação. O mock sobe com `cd ../ghosty-docs && npm ci && npm run mock:notes` (porta 4011). Veja o [guia dos contratos e dos mocks](../ghosty-docs/contracts/README.md).
+
+A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquitetura vem de [`config/`](../config) (as cópias nesta pasta não devem ser editadas à mão).
+
 ## Tecnologias
 
 - Node.js 24 + TypeScript
@@ -74,6 +80,8 @@ npm run start:dev       # porta 3001 · Swagger em http://localhost:3001/docs
 > Em construção. Comandos previstos: `npm test` (unidade, arquitetura e integração).
 
 ## Docker
+
+O `Dockerfile` (multi-stage, usuário sem root) e o `.dockerignore` já estão nesta pasta. Sem Docker na máquina, as imagens são publicadas pelo GitHub Actions ([`docker.yml`](../.github/workflows/docker.yml)) ao criar uma tag `v*`. Com Docker:
 
 ```bash
 docker build -t <usuario>/ghosty-notes-service:v1 .

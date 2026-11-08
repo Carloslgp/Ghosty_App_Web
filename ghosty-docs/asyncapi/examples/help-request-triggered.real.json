@@ -1,0 +1,43 @@
+{
+  "specversion": "1.0",
+  "id": "01a1b2e9-6678-7296-a3b9-a32ee32c2ca5",
+  "type": "ghosty.safety.help-request.triggered.v1",
+  "source": "safety-service",
+  "time": "2026-11-06T22:10:03Z",
+  "correlationId": "01a1b2e9-6290-7765-80a9-717fa4f6dfff",
+  "data": {
+    "helpRequestId": "01a1b2e9-6678-7ead-96cd-77eeda864fb3",
+    "accountId": "01a15965-b480-79af-a113-29b2fc82e5ef",
+    "mode": "real",
+    "origin": "button",
+    "checkInId": null,
+    "displayName": "Maria",
+    "messageTemplate": "Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.",
+    "location": { "lat": -23.5505, "lng": -46.6333, "accuracyMeters": 20 },
+    "contacts": [
+      {
+        "contactId": "01a1596a-4860-7d3c-971c-a474b56c7ce7",
+        "nickname": "Ana",
+        "position": 1,
+        "status": "confirmed",
+        "channel": "telegram"
+      },
+      {
+        "contactId": "01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2",
+        "nickname": "Beto",
+        "position": 2,
+        "status": "confirmed",
+        "channel": "web"
+      },
+      {
+        "contactId": "01a1596c-1d20-7fdb-b978-4d0ae408d877",
+        "nickname": "Carla",
+        "position": 3,
+        "status": "pending",
+        "channel": null
+      }
+    ],
+    "timezone": "America/Sao_Paulo",
+    "triggeredAt": "2026-11-06T22:10:03Z"
+  }
+}

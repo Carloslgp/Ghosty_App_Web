@@ -2,7 +2,7 @@
 
 Microfrontend do Ghosty: um shell e dois remotes, unidos por Module Federation.
 
-> **Status:** estrutura inicial. A implementação começa na Sprint 1.
+> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
 
 ## Sobre o Ghosty
 
@@ -40,6 +40,14 @@ O front só conversa com o BFF, sempre pelo API Gateway. Ele é dividido em apps
 | `apps/safety` | Remote da área de segurança, carregado sob demanda |
 | `packages/ui` | Tokens de design e componentes base |
 | `packages/api-client` | Cliente tipado do BFF, gerado a partir do OpenAPI |
+
+## Contrato e mock
+
+O contrato que o front consome está em [`ghosty-docs/contracts/bff.openapi.yaml`](../ghosty-docs/contracts/bff.openapi.yaml), com exemplos em cada operação. O mock sobe com `cd ../ghosty-docs && npm ci && npm run mock:bff` (porta 4010). Veja o [guia dos contratos e dos mocks](../ghosty-docs/contracts/README.md).
+
+Enquanto o BFF não existe, use `VITE_API_BASE_URL=http://localhost:4010` com o mock: `cd ../ghosty-docs && npm run mock:bff`.
+
+A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquitetura vem de [`config/`](../config) (as cópias nesta pasta não devem ser editadas à mão).
 
 ## Tecnologias
 

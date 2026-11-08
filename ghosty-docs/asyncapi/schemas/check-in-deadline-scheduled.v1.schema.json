@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckInDeadlineScheduled v1",
+  "description": "Prazo de um check-in agendado. Publicado pelo safety-service (outbox) na fila check-in-deadlines com visibilityTimeout até deadlineAt, e consumido pela Function check-in-deadline, que chama POST /internal/check-ins/{id}/expire com a version. Uma mensagem com version antiga é ignorada.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "id", "type", "source", "time", "correlationId", "data"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "$ref": "#/definitions/uuid",
+      "description": "Id único do evento (UUID v7). Os consumidores usam para descartar repetições."
+    },
+    "type": { "const": "ghosty.safety.check-in.deadline-scheduled.v1" },
+    "source": { "const": "safety-service" },
+    "time": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkInId", "accountId", "version", "mode", "dueAt", "toleranceMinutes", "deadlineAt"],
+      "properties": {
+        "checkInId": { "$ref": "#/definitions/uuid" },
+        "accountId": { "$ref": "#/definitions/uuid" },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Versão do check-in quando o prazo foi agendado. Sobe a cada extensão."
+        },
+        "mode": { "type": "string", "enum": ["real", "test"] },
+        "dueAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Horário em que a pessoa pretende chegar"
+        },
+        "toleranceMinutes": { "type": "integer", "minimum": 0, "maximum": 60 },
+        "deadlineAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "dueAt + tolerância: quando a mensagem fica visível na fila"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    }
+  }
+}

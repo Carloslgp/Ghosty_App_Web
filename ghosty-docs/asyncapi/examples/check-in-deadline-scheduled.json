@@ -1,0 +1,17 @@
+{
+  "specversion": "1.0",
+  "id": "01a1b2e0-36e8-7202-98f4-1ba087312630",
+  "type": "ghosty.safety.check-in.deadline-scheduled.v1",
+  "source": "safety-service",
+  "time": "2026-11-06T22:00:01Z",
+  "correlationId": "01a1b2e0-3300-775f-9622-f1332afc817f",
+  "data": {
+    "checkInId": "01a1b2e0-3300-7abf-90bf-07d69a5799b9",
+    "accountId": "01a15965-b480-79af-a113-29b2fc82e5ef",
+    "version": 1,
+    "mode": "real",
+    "dueAt": "2026-11-07T02:30:00Z",
+    "toleranceMinutes": 10,
+    "deadlineAt": "2026-11-07T02:40:00Z"
+  }
+}

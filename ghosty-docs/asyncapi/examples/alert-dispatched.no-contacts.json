@@ -1,0 +1,27 @@
+{
+  "specversion": "1.0",
+  "id": "01a1b2e9-7230-7198-bab2-afe8f4a60699",
+  "type": "ghosty.functions.alert.dispatched.v1",
+  "source": "ghosty-functions",
+  "time": "2026-11-06T22:10:06Z",
+  "correlationId": "01a1b2e9-6290-7765-80a9-717fa4f6dfff",
+  "data": {
+    "helpRequestId": "01a1b2e9-6678-7ead-96cd-77eeda864fb3",
+    "accountId": "01a15965-b480-79af-a113-29b2fc82e5ef",
+    "mode": "real",
+    "deliveryMode": "simulated",
+    "status": "failed",
+    "dispatchedAt": "2026-11-06T22:10:06Z",
+    "steps": [
+      {
+        "stepOrder": 1,
+        "contactId": null,
+        "channel": "none",
+        "outcome": "no_contacts",
+        "message": null,
+        "errorCode": null,
+        "occurredAt": "2026-11-06T22:10:06Z"
+      }
+    ]
+  }
+}

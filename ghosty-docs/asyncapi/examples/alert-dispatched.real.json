@@ -1,0 +1,45 @@
+{
+  "specversion": "1.0",
+  "id": "01a1b2e9-7230-7198-bab2-afe8f4a60698",
+  "type": "ghosty.functions.alert.dispatched.v1",
+  "source": "ghosty-functions",
+  "time": "2026-11-06T22:10:06Z",
+  "correlationId": "01a1b2e9-6290-7765-80a9-717fa4f6dfff",
+  "data": {
+    "helpRequestId": "01a1b2e9-6678-7ead-96cd-77eeda864fb3",
+    "accountId": "01a15965-b480-79af-a113-29b2fc82e5ef",
+    "mode": "real",
+    "deliveryMode": "telegram",
+    "status": "dispatched",
+    "dispatchedAt": "2026-11-06T22:10:06Z",
+    "steps": [
+      {
+        "stepOrder": 1,
+        "contactId": "01a1596a-4860-7d3c-971c-a474b56c7ce7",
+        "channel": "telegram",
+        "outcome": "sent",
+        "message": "Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.",
+        "errorCode": null,
+        "occurredAt": "2026-11-06T22:10:05Z"
+      },
+      {
+        "stepOrder": 2,
+        "contactId": "01a1596b-32c0-78b2-b54a-d7fa1a1e7fa2",
+        "channel": "web",
+        "outcome": "published_web",
+        "message": "Oi, Beto. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.",
+        "errorCode": null,
+        "occurredAt": "2026-11-06T22:10:06Z"
+      },
+      {
+        "stepOrder": 3,
+        "contactId": "01a1596c-1d20-7fdb-b978-4d0ae408d877",
+        "channel": "none",
+        "outcome": "skipped_unconfirmed",
+        "message": null,
+        "errorCode": null,
+        "occurredAt": "2026-11-06T22:10:06Z"
+      }
+    ]
+  }
+}

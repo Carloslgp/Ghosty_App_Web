@@ -1,0 +1,192 @@
+asyncapi: 3.0.0
+info:
+  title: Eventos do Ghosty
+  version: 0.1.0
+  description: |
+    Eventos trocados pelas filas do Azure Storage (Azurite na máquina local).
+
+    - **Envelope no estilo CloudEvents:** `specversion`, `id` (UUID v7), `type`, `source`, `time`,
+      `correlationId` e `data`. O `correlationId` é o mesmo `X-Correlation-Id` da requisição que
+      originou o evento.
+    - **Codificação:** o corpo da mensagem na fila é o JSON do envelope, em UTF-8, **codificado em
+      Base64**. É o formato que o gatilho de fila da Function espera por padrão, e vale para as três filas.
+    - **Pelo menos uma entrega:** o mesmo evento pode chegar mais de uma vez. Os consumidores
+      descartam repetições pelo `id` do envelope.
+    - **Ordem não garantida:** o prazo de check-in carrega a `version`, e prazos antigos são ignorados.
+    - **Tentativas e fila poison:** depois de 5 falhas, a mensagem vai para `<fila>-poison`.
+    - **Minimização de dados:** nenhum evento leva destino de entrega (o chat do Telegram fica só no
+      banco, cifrado). A localização só vai no evento quando a pessoa permitiu.
+    - **Validação:** os JSON Schemas de `schemas/` são usados com `ajv` pelos dois lados: quem publica
+      valida o que envia, e quem consome valida as mensagens de `examples/` nos testes.
+  tags:
+    - name: safety-service
+      description: Produz e consome eventos (outbox e RecordAlertDispatch)
+    - name: ghosty-functions
+      description: Produz e consome eventos (dispatch-alert e check-in-deadline)
+defaultContentType: application/json
+servers:
+  local:
+    host: 127.0.0.1:10001
+    pathname: /devstoreaccount1
+    protocol: http
+    title: Azurite
+    description: Emulador local das filas (`UseDevelopmentStorage=true`)
+  azure:
+    host: '{account}.queue.core.windows.net'
+    protocol: https
+    title: Azure Storage Queues
+    description: Filas da storage account na Azure
+    variables:
+      account:
+        description: Nome da storage account
+        default: ghostyqueues
+channels:
+  helpRequests:
+    address: help-requests
+    title: help-requests
+    summary: Pedidos de ajuda a enviar
+    description: Recebe um `HelpRequestTriggered` por pedido, real ou de teste. Fila poison `help-requests-poison`.
+    messages:
+      helpRequestTriggered:
+        $ref: '#/components/messages/HelpRequestTriggered'
+  checkInDeadlines:
+    address: check-in-deadlines
+    title: check-in-deadlines
+    summary: Prazos de check-in agendados
+    description: |
+      Cada mensagem fica invisível até o prazo: `sendMessage(texto, { visibilityTimeout: segundosAtéDeadlineAt, messageTimeToLive: -1 })`.
+      O atraso máximo da fila é de 7 dias, e um check-in dura no máximo 24 horas. Fila poison `check-in-deadlines-poison`.
+    messages:
+      checkInDeadlineScheduled:
+        $ref: '#/components/messages/CheckInDeadlineScheduled'
+  alertDispatches:
+    address: alert-dispatches
+    title: alert-dispatches
+    summary: Resultado dos envios
+    description: Recebe um `AlertDispatched` por pedido processado. Fila poison `alert-dispatches-poison`.
+    messages:
+      alertDispatched:
+        $ref: '#/components/messages/AlertDispatched'
+operations:
+  publishHelpRequestTriggered:
+    action: send
+    channel:
+      $ref: '#/channels/helpRequests'
+    title: safety-service publica o pedido de ajuda
+    summary: Despachante do outbox, logo depois do commit do pedido
+    tags:
+      - name: safety-service
+    messages:
+      - $ref: '#/channels/helpRequests/messages/helpRequestTriggered'
+  dispatchAlert:
+    action: receive
+    channel:
+      $ref: '#/channels/helpRequests'
+    title: Function dispatch-alert envia os avisos
+    summary: Busca os destinos, envia na ordem e publica o resultado
+    description: |
+      1. Busca `GET /internal/help-requests/{id}/delivery-targets` no `safety-service` (chats e passos já registrados).
+      2. Para cada contato confirmado, na ordem: `telegram` em modo real → `sendMessage` (`sent`);
+         `web` → `published_web`; modo `test` ou `DELIVERY_MODE=simulated` → `would_send`.
+      3. Publica `AlertDispatched` em `alert-dispatches`.
+
+      HTTP 429 e 5xx do Telegram lançam erro (a fila tenta de novo). HTTP 403 e 400 viram o passo `failed`.
+    tags:
+      - name: ghosty-functions
+    messages:
+      - $ref: '#/channels/helpRequests/messages/helpRequestTriggered'
+  publishCheckInDeadlineScheduled:
+    action: send
+    channel:
+      $ref: '#/channels/checkInDeadlines'
+    title: safety-service agenda o prazo do check-in
+    summary: Ao criar ou estender um check-in, com atraso até o prazo
+    tags:
+      - name: safety-service
+    messages:
+      - $ref: '#/channels/checkInDeadlines/messages/checkInDeadlineScheduled'
+  checkCheckInDeadline:
+    action: receive
+    channel:
+      $ref: '#/channels/checkInDeadlines'
+    title: Function check-in-deadline confere o prazo
+    summary: Chama `POST /internal/check-ins/{id}/expire` com a `version`
+    description: |
+      Se o check-in ainda estiver ativo e na mesma versão, o `safety-service` o marca como `expired` e
+      cria um pedido de ajuda com origem `check_in`. Caso contrário, responde que ignorou (idempotente).
+    tags:
+      - name: ghosty-functions
+    messages:
+      - $ref: '#/channels/checkInDeadlines/messages/checkInDeadlineScheduled'
+  publishAlertDispatched:
+    action: send
+    channel:
+      $ref: '#/channels/alertDispatches'
+    title: Function publica o resultado dos envios
+    tags:
+      - name: ghosty-functions
+    messages:
+      - $ref: '#/channels/alertDispatches/messages/alertDispatched'
+  recordAlertDispatch:
+    action: receive
+    channel:
+      $ref: '#/channels/alertDispatches'
+    title: safety-service grava a linha do tempo
+    summary: Consumidor idempotente (tabela ProcessedMessages)
+    description: |
+      Lê a fila a cada 2 segundos enquanto houver réplica ativa, com espera crescente de até 30 segundos
+      quando ela está vazia. Grava os passos em `DeliverySteps` e atualiza o status do pedido.
+    tags:
+      - name: safety-service
+    messages:
+      - $ref: '#/channels/alertDispatches/messages/alertDispatched'
+components:
+  messages:
+    HelpRequestTriggered:
+      name: HelpRequestTriggered
+      title: Pedido de ajuda disparado
+      summary: '`ghosty.safety.help-request.triggered.v1`'
+      contentType: application/json
+      payload:
+        $ref: './schemas/help-request-triggered.v1.schema.json'
+      examples:
+        - name: real
+          summary: Pedido real pelo botão, com localização
+          payload:
+            $ref: './examples/help-request-triggered.real.json'
+        - name: testCheckIn
+          summary: Teste seguro por check-in vencido, sem localização
+          payload:
+            $ref: './examples/help-request-triggered.test-check-in.json'
+    CheckInDeadlineScheduled:
+      name: CheckInDeadlineScheduled
+      title: Prazo de check-in agendado
+      summary: '`ghosty.safety.check-in.deadline-scheduled.v1`'
+      contentType: application/json
+      payload:
+        $ref: './schemas/check-in-deadline-scheduled.v1.schema.json'
+      examples:
+        - name: created
+          summary: Check-in criado com 10 minutos de tolerância
+          payload:
+            $ref: './examples/check-in-deadline-scheduled.json'
+    AlertDispatched:
+      name: AlertDispatched
+      title: Avisos enviados
+      summary: '`ghosty.functions.alert.dispatched.v1`'
+      contentType: application/json
+      payload:
+        $ref: './schemas/alert-dispatched.v1.schema.json'
+      examples:
+        - name: real
+          summary: Telegram, página web e um contato pendente
+          payload:
+            $ref: './examples/alert-dispatched.real.json'
+        - name: test
+          summary: Teste seguro, nada enviado
+          payload:
+            $ref: './examples/alert-dispatched.test.json'
+        - name: noContacts
+          summary: Nenhum contato confirmado
+          payload:
+            $ref: './examples/alert-dispatched.no-contacts.json'
