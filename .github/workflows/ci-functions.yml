@@ -1,0 +1,38 @@
+name: ci-functions
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-functions/**'
+      - 'ghosty-docs/contracts/functions.openapi.yaml'
+      - 'ghosty-docs/asyncapi/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-functions.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-functions/**'
+      - 'ghosty-docs/contracts/functions.openapi.yaml'
+      - 'ghosty-docs/asyncapi/**'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-functions.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-functions

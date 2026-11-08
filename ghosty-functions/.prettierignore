@@ -1,0 +1,12 @@
+# Ignorados pelo Prettier. O original fica em config/prettierignore, na raiz do repositório.
+# Não edite a cópia: edite o original e rode `node config/sync.mjs`.
+node_modules/
+dist/
+coverage/
+reports/
+logs/
+site/
+package-lock.json
+*.min.*
+# Markdown fica no estilo dos READMEs (tabelas compactas), sem formatação automática.
+*.md

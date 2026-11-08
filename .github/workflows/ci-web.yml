@@ -1,0 +1,36 @@
+name: ci-web
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-web/**'
+      - 'ghosty-docs/contracts/bff.openapi.yaml'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-web.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-web/**'
+      - 'ghosty-docs/contracts/bff.openapi.yaml'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-web.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-web

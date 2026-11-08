@@ -1,0 +1,26 @@
+# Fora da imagem: dependências locais, builds, segredos, testes, dados locais e documentação.
+node_modules
+dist
+coverage
+reports
+logs
+data
+*.sqlite
+*.sqlite3
+.env
+.env.*
+*.pem
+*.key
+test
+**/*.spec.ts
+*.md
+.git
+.gitignore
+.prettierrc.json
+.prettierignore
+eslint.base.mjs
+eslint.config.mjs
+vitest.base.ts
+vitest.config.ts
+Dockerfile
+.dockerignore

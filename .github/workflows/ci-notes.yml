@@ -1,0 +1,37 @@
+name: ci-notes
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-notes-service/**'
+      - 'ghosty-docs/contracts/notes-service.openapi.yaml'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-notes.yml
+      - .github/workflows/node-project.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-notes-service/**'
+      - 'ghosty-docs/contracts/notes-service.openapi.yaml'
+      - config/**
+      - .prettierrc.json
+      - .nvmrc
+      - .github/workflows/ci-notes.yml
+      - .github/workflows/node-project.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/node-project.yml
+    with:
+      project-dir: ghosty-notes-service
+      docker: true

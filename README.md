@@ -2,7 +2,7 @@
 
 App web de segurança pessoal discreto. Por fora, é um app de notas comum que funciona de verdade. Por dentro, tem uma área de segurança para avisar a rede de apoio da pessoa.
 
-> **Status:** estrutura inicial. A implementação começa na Sprint 1.
+> **Status:** fundação pronta: configuração compartilhada, CI por projeto, Dockerfiles, publicação das imagens e contratos v0 com mocks. A implementação dos serviços começa na Sprint 1.
 
 Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) mostra tudo o que aconteceria sem enviar nada. O Ghosty **não aciona** polícia nem serviços de emergência e não os substitui: 190 (Polícia Militar), 180 (Central de Atendimento à Mulher) e 192 (SAMU).
 
@@ -43,6 +43,21 @@ flowchart LR
 | [`ghosty-docs/`](ghosty-docs) | arc42, C4, AsyncAPI, contratos e infraestrutura | — |
 
 Cada pasta tem o próprio README, com detalhes e instruções para rodar.
+
+## Desenvolvimento
+
+Pré-requisito: Node.js 24 LTS (versão em [`.nvmrc`](.nvmrc)). Cada projeto é independente: tem o próprio `package.json` e roda com `npm ci` dentro da pasta.
+
+- **Contratos primeiro.** Os contratos OpenAPI e AsyncAPI ficam em [`ghosty-docs/contracts/`](ghosty-docs/contracts) e [`ghosty-docs/asyncapi/`](ghosty-docs/asyncapi). Cada frente desenvolve contra um mock gerado do contrato:
+
+  ```bash
+  cd ghosty-docs && npm ci && npm run mock:all   # BFF :4010 · notes :4011 · safety :4012 · functions :4013
+  ```
+
+- **Configuração compartilhada.** TypeScript, ESLint, Prettier, Vitest e as regras de arquitetura (ArchUnitTS) ficam em [`config/`](config). Cada projeto guarda uma cópia, atualizada com `node config/sync.mjs`, e o CI confere que nenhuma cópia divergiu.
+- **CI.** Um workflow por projeto em [`.github/workflows/`](.github/workflows) (`ci-bff.yml`, `ci-notes.yml`, `ci-safety.yml`, `ci-functions.yml`, `ci-web.yml`, `ci-docs.yml`), cada um com filtro de caminho: `npm ci` → `lint` → `typecheck` → `test` → `build`, mais o build da imagem Docker nos 3 serviços. O `ci-repo.yml` valida os próprios workflows.
+- **Imagens.** O [`docker.yml`](.github/workflows/docker.yml) publica `<usuario>/ghosty-bff`, `<usuario>/ghosty-notes-service` e `<usuario>/ghosty-safety-service` no Docker Hub quando uma tag `v*` é criada (`git tag v1 && git push origin v1`). Precisa dos secrets `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN` no repositório.
+- **Commits.** Conventional Commits em português (`feat:`, `fix:`, `test:`, `docs:`, `chore:`), uma branch por tarefa (`feat/<ID>-<descricao>`) e pull request com revisão.
 
 ## Alunos
 

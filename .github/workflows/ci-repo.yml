@@ -1,0 +1,40 @@
+# Checagens do repositório: workflows válidos e configuração compartilhada em dia em todos os projetos.
+name: ci-repo
+
+on:
+  pull_request:
+    paths:
+      - .github/**
+      - config/**
+      - .prettierrc.json
+  push:
+    branches: [main]
+    paths:
+      - .github/**
+      - config/**
+      - .prettierrc.json
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  repo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configuração compartilhada em dia
+        run: node config/sync.mjs --check
+
+      - name: actionlint
+        run: |
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | tar -xz actionlint
+          ./actionlint -color

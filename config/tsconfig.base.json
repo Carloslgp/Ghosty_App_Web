@@ -1,0 +1,29 @@
+// Configuração compartilhada do TypeScript.
+// O original fica em config/tsconfig.base.json, na raiz do repositório. Cada projeto recebe uma
+// cópia idêntica para continuar independente (build do Docker com a pasta do projeto como contexto).
+// Não edite a cópia: edite o original e rode `node config/sync.mjs`.
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  }
+}
