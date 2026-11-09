@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { API, server } from '../../../test/msw-server';
-import { createApiClient, isProblem, isSafetyArea } from './client';
+import { createApiClient, isProblem, isSafetyArea, routeOf } from './client';
 
 describe('createApiClient', () => {
   it('injeta o JWT, a chave do APIM e o X-Safety-Token só onde cabe', async () => {
@@ -97,5 +97,38 @@ describe('createApiClient', () => {
     expect(isSafetyArea(`${API}/safety/contacts/1`)).toBe(true);
     expect(isSafetyArea(`${API}/safety/session`)).toBe(false);
     expect(isSafetyArea(`${API}/notes`)).toBe(false);
+  });
+
+  it('com a API sob um sufixo no API Management, as regras valem pela rota (sem o prefixo)', async () => {
+    const base = `${API}/app`;
+    const seen: Record<string, Headers> = {};
+    server.use(
+      http.get(`${base}/safety/contacts`, ({ request }) => {
+        seen.safety = request.headers;
+        return HttpResponse.json({ code: 'FORBIDDEN', status: 403 }, { status: 403 });
+      }),
+      http.get(`${base}/invitations/:token`, ({ request }) => {
+        seen.invite = request.headers;
+        return HttpResponse.json({});
+      }),
+    );
+    const onSafetyForbidden = vi.fn();
+    const api = createApiClient({
+      baseUrl: base,
+      getAccessToken: () => 'jwt-1',
+      getSafetyToken: () => 'seguro-1',
+      onSafetyForbidden,
+    });
+    await api.GET('/safety/contacts');
+    await api.GET('/invitations/{token}', { params: { path: { token: 't'.repeat(43) } } });
+    expect(seen.safety?.get('x-safety-token')).toBe('seguro-1');
+    expect(onSafetyForbidden).toHaveBeenCalledTimes(1);
+    expect(seen.invite?.get('authorization')).toBeNull();
+
+    expect(routeOf('https://apim.example/app/safety/x', 'https://apim.example/app')).toBe('/safety/x');
+    expect(routeOf('https://apim.example/app/safety/x', 'https://apim.example/app/')).toBe('/safety/x');
+    expect(routeOf('https://apim.example/safety/x', 'https://apim.example')).toBe('/safety/x');
+    expect(isSafetyArea('https://apim.example/app/aggregated-data', 'https://apim.example/app')).toBe(true);
+    expect(isSafetyArea('https://apim.example/app/safety/session', 'https://apim.example/app')).toBe(false);
   });
 });

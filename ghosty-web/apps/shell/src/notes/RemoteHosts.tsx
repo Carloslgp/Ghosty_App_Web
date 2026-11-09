@@ -1,4 +1,4 @@
-import type { NotesAppProps, SafetyAppProps } from '@ghosty/api-client';
+import type { InviteAppProps, NotesAppProps, SafetyAppProps } from '@ghosty/api-client';
 import { Banner, Spinner } from '@ghosty/ui';
 import { loadRemote, registerRemotes } from '@module-federation/runtime';
 import {
@@ -15,16 +15,21 @@ export interface RemoteLoaders {
   notes: () => Promise<{ default: ComponentType<NotesAppProps> }>;
   /** O `safety` é registrado na hora, com a URL que o BFF devolve no desbloqueio. */
   safety: (remoteUrl: string) => Promise<{ default: ComponentType<SafetyAppProps> }>;
+  /** A página pública do convite, do mesmo remote, com a URL que o BFF devolve para um token válido. */
+  invite: (remoteUrl: string) => Promise<{ default: ComponentType<InviteAppProps> }>;
+}
+
+async function loadFromSafety<P>(remoteUrl: string, module: 'safety/App' | 'safety/Invite') {
+  registerRemotes([{ name: 'safety', entry: remoteUrl, type: 'module' }], { force: true });
+  const remote = await loadRemote<{ default: ComponentType<P> }>(module);
+  if (!remote) throw new Error('Remote indisponível.');
+  return remote;
 }
 
 export const defaultLoaders: RemoteLoaders = {
   notes: () => import('notes/App'),
-  async safety(remoteUrl) {
-    registerRemotes([{ name: 'safety', entry: remoteUrl, type: 'module' }], { force: true });
-    const remote = await loadRemote<{ default: ComponentType<SafetyAppProps> }>('safety/App');
-    if (!remote) throw new Error('Remote indisponível.');
-    return remote;
-  },
+  safety: (remoteUrl) => loadFromSafety<SafetyAppProps>(remoteUrl, 'safety/App'),
+  invite: (remoteUrl) => loadFromSafety<InviteAppProps>(remoteUrl, 'safety/Invite'),
 };
 
 const LoadersContext = createContext<RemoteLoaders>(defaultLoaders);
@@ -99,6 +104,21 @@ export function SafetyHost({ remoteUrl, ...props }: SafetyAppProps & { remoteUrl
   if (remote.status === 'loading') return loading;
   // Se o remote falhar, nada de mensagem que revele outra área: a saída rápida devolve as notas.
   if (remote.status === 'failed') return null;
+  return (
+    <RemoteBoundary fallback={null}>
+      <remote.Component {...props} />
+    </RemoteBoundary>
+  );
+}
+
+export function InviteHost({ remoteUrl, ...props }: InviteAppProps & { remoteUrl: string }) {
+  const loaders = use(LoadersContext);
+  const [load] = useState(() => () => loaders.invite(remoteUrl));
+  const remote = useRemote(load);
+  if (remote.status === 'loading') return loading;
+  if (remote.status === 'failed') {
+    return <Banner tone="alert">Não foi possível abrir o convite agora. Recarregue a página.</Banner>;
+  }
   return (
     <RemoteBoundary fallback={null}>
       <remote.Component {...props} />

@@ -5,6 +5,9 @@ import { useAuth } from '../auth/AuthProvider';
 /** Só dígitos, de 6 a 8: o resto da busca nunca sai do navegador. */
 export const UNLOCK_PATTERN = /^[0-9]{6,8}$/;
 
+/** Com a aba oculta por mais tempo que isso, a área de segurança tranca sozinha. */
+export const AUTO_LOCK_MS = 2 * 60 * 1000;
+
 export interface UnlockState {
   remoteUrl: string | null;
   /** Enter na busca das notas. */
@@ -39,6 +42,25 @@ export function useSafetyUnlock(): UnlockState {
     setSafetyForbiddenHandler(quickExit);
     return () => setSafetyForbiddenHandler(null);
   }, [quickExit, setSafetyForbiddenHandler]);
+
+  // Aba oculta por mais de 2 minutos (trocou de app, bloqueou a tela): tranca e volta para as notas.
+  useEffect(() => {
+    if (!remoteUrl) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        timer ??= setTimeout(quickExit, AUTO_LOCK_MS);
+      } else if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [remoteUrl, quickExit]);
 
   const onSearchSubmit = useCallback(
     (query: string) => {

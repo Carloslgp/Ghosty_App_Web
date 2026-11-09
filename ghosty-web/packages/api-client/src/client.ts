@@ -19,19 +19,28 @@ export interface ApiClientOptions {
   fetch?: typeof fetch;
 }
 
-/** Rotas que exigem a sessão segura (o 403 delas vira saída rápida). */
-export function isSafetyArea(url: string): boolean {
+/**
+ * O caminho da rota do BFF, sem o prefixo da URL base. No API Management, a API pode ter um sufixo
+ * (ex.: `https://<apim>.azure-api.net/app`): `/app/safety/contacts` é a rota `/safety/contacts`.
+ */
+export function routeOf(url: string, baseUrl = ''): string {
   const { pathname } = new URL(url);
+  const prefix = baseUrl ? new URL(baseUrl, 'http://base.invalid').pathname.replace(/\/+$/, '') : '';
+  return prefix && pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
+}
+
+/** Rotas que exigem a sessão segura (o 403 delas vira saída rápida). */
+export function isSafetyArea(url: string, baseUrl = ''): boolean {
+  const route = routeOf(url, baseUrl);
   return (
-    (pathname.startsWith('/safety/') && !pathname.startsWith('/safety/session')) ||
-    pathname === '/aggregated-data'
+    (route.startsWith('/safety/') && !route.startsWith('/safety/session')) || route === '/aggregated-data'
   );
 }
 
 /** Rotas públicas: nem renovação no 401, nem `Authorization`. */
-function isPublic(url: string): boolean {
-  const { pathname } = new URL(url);
-  return pathname.startsWith('/auth/') || pathname.startsWith('/invitations/');
+function isPublic(url: string, baseUrl: string): boolean {
+  const route = routeOf(url, baseUrl);
+  return route.startsWith('/auth/') || route.startsWith('/invitations/');
 }
 
 /**
@@ -45,10 +54,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   const withHeaders = (request: Request, accessToken: string | null): Request => {
     const headers = new Headers(request.headers);
     if (options.subscriptionKey) headers.set('Ocp-Apim-Subscription-Key', options.subscriptionKey);
-    if (accessToken && !isPublic(request.url)) headers.set('Authorization', `Bearer ${accessToken}`);
+    if (accessToken && !isPublic(request.url, options.baseUrl)) {
+      headers.set('Authorization', `Bearer ${accessToken}`);
+    }
     const safetyToken = options.getSafetyToken?.();
-    const { pathname } = new URL(request.url);
-    if (safetyToken && (pathname.startsWith('/safety/') || pathname === '/aggregated-data')) {
+    const route = routeOf(request.url, options.baseUrl);
+    if (safetyToken && (route.startsWith('/safety/') || route === '/aggregated-data')) {
       headers.set('X-Safety-Token', safetyToken);
     }
     return new Request(request, { headers });
@@ -64,11 +75,17 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     async onResponse({ request, response, id }) {
       const original = pending.get(id);
       pending.delete(id);
-      if (response.status === 401 && original && !isPublic(request.url) && options.refreshAccessToken) {
+      if (
+        response.status === 401 &&
+        original &&
+        !isPublic(request.url, options.baseUrl) &&
+        options.refreshAccessToken
+      ) {
         const token = await options.refreshAccessToken();
         if (token) return baseFetch(withHeaders(original, token));
       }
-      if (response.status === 403 && isSafetyArea(request.url)) options.onSafetyForbidden?.();
+      if (response.status === 403 && isSafetyArea(request.url, options.baseUrl))
+        options.onSafetyForbidden?.();
       return response;
     },
     onError({ id }) {

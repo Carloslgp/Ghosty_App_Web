@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "build": "npm run build -w @ghosty/notes && npm run build -w @ghosty/safety && npm run build -w @ghosty/shell",
-    "preview": "concurrently --names shell,notes,safety \"npm:preview -w @ghosty/shell\" \"npm:preview -w @ghosty/notes\" \"npm:preview -w @ghosty/safety\""
+    "preview": "concurrently --names shell,notes,safety \"npm:preview -w @ghosty/shell\" \"npm:preview -w @ghosty/notes\" \"npm:preview -w @ghosty/safety\"",
+    "swa:config": "node scripts/swa-config.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.5",
@@ -47,6 +48,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "@vitest/coverage-v8": "^5.1.0",
+    "archunit": "^2.5.4",
     "concurrently": "^10.0.7",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",

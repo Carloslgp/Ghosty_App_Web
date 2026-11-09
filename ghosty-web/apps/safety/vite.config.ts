@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 
 /**
  * Remote `safety`: só é baixado depois do desbloqueio (o shell o registra com a URL que o BFF devolve).
+ * Expõe também `./Invite`, a página pública do convite (`/c/:token`), carregada só com um token válido.
  * Em produção, sem source maps e com arquivos nomeados só pelo hash, para nenhum nome revelar o conteúdo.
  */
 export default defineConfig({
@@ -12,7 +13,7 @@ export default defineConfig({
     federation({
       name: 'safety',
       filename: 'remoteEntry.js',
-      exposes: { './App': './src/App.tsx' },
+      exposes: { './App': './src/App.tsx', './Invite': './src/Invite.tsx' },
       shared: {
         react: { singleton: true },
         'react-dom': { singleton: true },

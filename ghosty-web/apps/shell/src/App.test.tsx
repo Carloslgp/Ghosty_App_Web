@@ -1,10 +1,11 @@
-import type { NotesAppProps, SafetyAppProps } from '@ghosty/api-client';
-import { render, screen, waitFor } from '@testing-library/react';
+import type { InviteAppProps, NotesAppProps, SafetyAppProps } from '@ghosty/api-client';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { API, server } from '../../../test/msw-server';
 import { App } from './App';
+import { AUTO_LOCK_MS } from './safety/useSafetyUnlock';
 import { REFRESH_KEY } from './auth/AuthProvider';
 import type { RemoteLoaders } from './notes/RemoteHosts';
 
@@ -38,7 +39,16 @@ const loaders: RemoteLoaders = {
         </div>
       ),
     }),
+  invite: (remoteUrl) => {
+    invitedFrom.push(remoteUrl);
+    return Promise.resolve({
+      default: ({ token }: InviteAppProps) => <p>Convite {token.slice(0, 5)}</p>,
+    });
+  },
 };
+
+const invitedFrom: string[] = [];
+const TOKEN = 'jKotp-mc9i8mlKGKyexO0wc181jY4RIorNnJu-kXiag';
 
 function renderAt(path: string) {
   window.history.pushState(null, '', path);
@@ -152,6 +162,56 @@ describe('shell', () => {
     expect(window.localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
+  describe('convite público (/c/:token)', () => {
+    beforeEach(() => {
+      invitedFrom.length = 0;
+    });
+
+    it('sem login: com token válido, carrega o remote do convite com a URL que o BFF devolveu', async () => {
+      server.use(
+        http.get(`${API}/invitations/${TOKEN}`, () =>
+          HttpResponse.json({
+            inviterDisplayName: 'Maria',
+            status: 'pending',
+            channel: null,
+            expiresAt: '2026-11-09T22:10:00Z',
+            respondable: true,
+            telegramUrl: `https://t.me/bot?start=${TOKEN}`,
+            remoteUrl: 'https://remoto.example/remoteEntry.js',
+          }),
+        ),
+      );
+      renderAt(`/c/${TOKEN}`);
+      expect(await screen.findByText('Convite jKotp')).toBeInTheDocument();
+      expect(invitedFrom).toEqual(['https://remoto.example/remoteEntry.js']);
+      expect(screen.queryByRole('heading', { name: 'Entrar' })).not.toBeInTheDocument();
+    });
+
+    it('token desconhecido ou malformado: tela neutra, sem baixar o remote', async () => {
+      server.use(
+        http.get(`${API}/invitations/${TOKEN}`, () =>
+          HttpResponse.json({ code: 'NOT_FOUND', status: 404 }, { status: 404 }),
+        ),
+      );
+      renderAt(`/c/${TOKEN}`);
+      expect(await screen.findByText('Este link não é válido.')).toBeInTheDocument();
+      renderAt('/c/curto');
+      expect(await screen.findAllByText('Este link não é válido.')).toHaveLength(2);
+      expect(invitedFrom).toEqual([]);
+    });
+
+    it('convite vencido: avisa para pedir um link novo', async () => {
+      server.use(
+        http.get(`${API}/invitations/${TOKEN}`, () =>
+          HttpResponse.json({ code: 'INVITATION_EXPIRED', status: 410 }, { status: 410 }),
+        ),
+      );
+      renderAt(`/c/${TOKEN}`);
+      expect(await screen.findByText(/Este convite venceu/)).toBeInTheDocument();
+      expect(invitedFrom).toEqual([]);
+    });
+  });
+
   describe('desbloqueio pela busca', () => {
     beforeEach(() => window.localStorage.setItem(REFRESH_KEY, 'r'.repeat(43)));
 
@@ -195,6 +255,46 @@ describe('shell', () => {
       expect(await screen.findByText('Lista de notas')).toBeInTheDocument();
       // O BFF recebe o token para revogar a sessão no servidor.
       await waitFor(() => expect(lockedWith).toBe('seguro-1'));
+    });
+
+    describe('aba oculta', () => {
+      afterEach(() => {
+        vi.useRealTimers();
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      });
+
+      const setVisibility = (state: 'hidden' | 'visible') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+
+      it('oculta por mais de 2 minutos, a área tranca sozinha; voltar antes disso não tranca', async () => {
+        server.use(
+          http.post(`${API}/safety/session`, () =>
+            HttpResponse.json({
+              safetyToken: 'seguro-2',
+              expiresIn: 600,
+              remoteUrl: 'http://x/remoteEntry.js',
+            }),
+          ),
+          http.delete(`${API}/safety/session`, () => new HttpResponse(null, { status: 204 })),
+        );
+        renderAt('/');
+        await userEvent.click(await screen.findByRole('button', { name: 'buscar código' }));
+        expect(await screen.findByText('Área de Maria')).toBeInTheDocument();
+
+        vi.useFakeTimers();
+        setVisibility('hidden');
+        await act(() => vi.advanceTimersByTimeAsync(AUTO_LOCK_MS - 1_000));
+        setVisibility('visible');
+        await act(() => vi.advanceTimersByTimeAsync(AUTO_LOCK_MS));
+        expect(screen.getByText('Área de Maria')).toBeInTheDocument();
+
+        setVisibility('hidden');
+        await act(() => vi.advanceTimersByTimeAsync(AUTO_LOCK_MS));
+        vi.useRealTimers();
+        expect(await screen.findByText('Lista de notas')).toBeInTheDocument();
+      });
     });
   });
 });
