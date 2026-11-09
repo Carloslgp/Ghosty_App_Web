@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid';
 import { CheckCheckInDeadlineHandler } from '../../application/features/check-check-in-deadline/check-check-in-deadline.handler.js';
 import { DispatchAlertHandler } from '../../application/features/dispatch-alert/dispatch-alert.handler.js';
+import { HandleTelegramUpdateHandler } from '../../application/features/handle-telegram-update/handle-telegram-update.handler.js';
 import type { Clock, IdGenerator } from '../../application/ports/runtime.js';
 import { loadEnv, type Env } from '../../infrastructure/config/env.js';
 import { SafetyInternalHttpClient } from '../../infrastructure/http/safety-internal.http-client.js';
@@ -21,10 +22,20 @@ let env: Env | undefined;
 let dispatch: DispatchAlertHandler | undefined;
 let deadline: CheckCheckInDeadlineHandler | undefined;
 let publisher: StorageQueuePublisher | undefined;
+let telegramUpdate: HandleTelegramUpdateHandler | undefined;
 
-function settings(): Env {
+export function settings(): Env {
   env ??= loadEnv();
   return env;
+}
+
+/** Só para os testes: descarta o que foi montado, para as configurações serem lidas de novo. */
+export function resetRuntime(): void {
+  env = undefined;
+  dispatch = undefined;
+  deadline = undefined;
+  publisher = undefined;
+  telegramUpdate = undefined;
 }
 
 function safetyClient() {
@@ -60,4 +71,19 @@ export function dispatchAlertHandler(): DispatchAlertHandler {
 export function checkInDeadlineHandler(): CheckCheckInDeadlineHandler {
   deadline ??= new CheckCheckInDeadlineHandler(safetyClient());
   return deadline;
+}
+
+/**
+ * O `/start` e o `/parar` do bot. A resposta no chat usa o bot sempre que houver token, mesmo com
+ * `DELIVERY_MODE=simulated`: ela vai só para quem acabou de escrever ao bot, não é um aviso.
+ */
+export function telegramUpdateHandler(): HandleTelegramUpdateHandler {
+  if (!telegramUpdate) {
+    const token = settings().TELEGRAM_BOT_TOKEN;
+    telegramUpdate = new HandleTelegramUpdateHandler(
+      safetyClient(),
+      token === '' ? null : new TelegramBotGateway(token),
+    );
+  }
+  return telegramUpdate;
 }

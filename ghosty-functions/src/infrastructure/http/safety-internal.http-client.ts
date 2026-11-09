@@ -61,4 +61,22 @@ export class SafetyInternalHttpClient implements SafetyInternalClient {
       { version },
     );
   }
+
+  linkTelegramContact(token: string, chatId: string, correlationId: string) {
+    return this.call<{ result: 'linked' | 'ignored'; inviterDisplayName: string | null }>(
+      'POST',
+      '/internal/contacts/telegram-link',
+      correlationId,
+      { token, chatId },
+    );
+  }
+
+  leaveTelegramContact(chatId: string, correlationId: string) {
+    return this.call<{ result: 'left' | 'ignored'; contactsAffected: number }>(
+      'POST',
+      '/internal/contacts/telegram-leave',
+      correlationId,
+      { chatId },
+    );
+  }
 }

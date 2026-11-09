@@ -4,13 +4,14 @@
   "private": true,
   "description": "Azure Functions do Ghosty: prontidão, prévia da mensagem e eventos",
   "type": "module",
-  "main": "dist/functions/*.js",
+  "main": "dist/api/*.js",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "prestart": "npm run build",
     "start": "func start",
+    "start:local-host": "npm run build && node scripts/local-host.mjs",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write . && eslint . --fix",
     "typecheck": "tsc -p tsconfig.json",
@@ -18,8 +19,10 @@
     "test:watch": "vitest",
     "test:arch": "vitest run test/architecture",
     "test:cov": "vitest run --coverage",
-    "build": "tsc -p tsconfig.build.json",
-    "openapi:sync": "node scripts/openapi-sync.mjs"
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+    "openapi:sync": "node scripts/openapi-sync.mjs",
+    "telegram:poll": "npm run build && node dist/cli/telegram.js poll",
+    "telegram:webhook": "npm run build && node dist/cli/telegram.js webhook"
   },
   "dependencies": {
     "@azure/functions": "^4.17.0",

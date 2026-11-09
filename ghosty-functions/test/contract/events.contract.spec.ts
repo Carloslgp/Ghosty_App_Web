@@ -5,7 +5,7 @@ import {
   DispatchAlertHandler,
   type HelpRequestTriggered,
 } from '../../src/application/features/dispatch-alert/dispatch-alert.handler.js';
-import document from '../../src/functions/openapi/functions.openapi.json' with { type: 'json' };
+import document from '../../src/api/openapi/functions.openapi.json' with { type: 'json' };
 import {
   InvalidEventError,
   validateEvent,
