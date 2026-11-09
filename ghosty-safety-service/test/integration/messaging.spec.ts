@@ -1,9 +1,12 @@
 import { QueueServiceClient } from '@azure/storage-queue';
 import { readFileSync } from 'node:fs';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { StartCheckInHandler } from '../../src/application/features/check-ins/start-check-in/start-check-in.handler.js';
+import { TriggerHelpRequestHandler } from '../../src/application/features/help-requests/trigger-help-request/trigger-help-request.handler.js';
 import { RecordAlertDispatchHandler } from '../../src/application/features/help-requests/record-alert-dispatch/record-alert-dispatch.handler.js';
 import { Account } from '../../src/domain/accounts/account.entity.js';
 import { HelpRequest } from '../../src/domain/help-requests/help-request.entity.js';
+import { validateEvent } from '../../src/infrastructure/events/event-validator.js';
 import { AlertDispatchesConsumer } from '../../src/infrastructure/messaging/alert-dispatches.consumer.js';
 import { OutboxDispatcher } from '../../src/infrastructure/messaging/outbox.dispatcher.js';
 import {
@@ -149,6 +152,54 @@ describe('Mensageria com o Azurite: o evento sai e o resultado volta', () => {
     const stored = await kit.repos(({ helpRequests }) => helpRequests.findById(request.id));
     expect(stored?.status).toBe('dispatched');
     expect((await queue.peekMessages()).peekedMessageItems).toHaveLength(0);
+  });
+
+  it('de ponta a ponta: o pedido de ajuda e o prazo do check-in saem do outbox para as filas certas', async () => {
+    const helpQueue = `help-requests-fluxo-${run}`;
+    const deadlineQueue = `check-in-deadlines-fluxo-${run}`;
+    const dispatcher = new OutboxDispatcher(
+      kit.uow,
+      queues,
+      (type) => (type.includes('help-request') ? helpQueue : deadlineQueue),
+      kit.clock,
+      silent,
+    );
+
+    const request = await new TriggerHelpRequestHandler(
+      kit.uow,
+      kit.tokens,
+      kit.clock,
+      kit.ids,
+      kit.config,
+    ).execute({
+      accountId: ACCOUNT,
+      mode: 'test',
+      location: null,
+      idempotencyKey: 'chave-fluxo-1',
+      correlationId: 'corr-fluxo',
+    });
+    await new StartCheckInHandler(kit.uow, kit.tokens, kit.clock, kit.ids).execute({
+      accountId: ACCOUNT,
+      destination: 'Casa',
+      dueAt: new Date(kit.clock.now().getTime() + 30 * 60_000),
+      mode: 'real',
+      idempotencyKey: 'chave-fluxo-2',
+      correlationId: 'corr-fluxo',
+    });
+    expect(await dispatcher.dispatchPending()).toBe(2);
+
+    const { receivedMessageItems } = await raw.getQueueClient(helpQueue).receiveMessages();
+    expect(receivedMessageItems).toHaveLength(1);
+    const event = validateEvent<{ correlationId: string; data: { helpRequestId: string } }>(
+      'helpRequestTriggered',
+      JSON.parse(decodeMessage(receivedMessageItems[0]!.messageText)),
+    );
+    expect(event).toMatchObject({ correlationId: 'corr-fluxo', data: { helpRequestId: request.id } });
+
+    // O prazo já está na fila, mas invisível até dueAt + tolerância.
+    const deadlines = raw.getQueueClient(deadlineQueue);
+    expect((await deadlines.peekMessages()).peekedMessageItems).toHaveLength(0);
+    expect((await deadlines.getProperties()).approximateMessagesCount).toBe(1);
   });
 
   it('mensagem fora do formato vai para a fila poison', async () => {

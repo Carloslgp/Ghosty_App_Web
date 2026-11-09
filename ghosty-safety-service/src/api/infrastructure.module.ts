@@ -18,6 +18,7 @@ import { PASSWORD_HASHER } from '../application/ports/password-hasher.js';
 import { SAFETY_CONFIG, type SafetyConfig } from '../application/ports/safety-config.js';
 import { UNIT_OF_WORK } from '../application/ports/unit-of-work.js';
 import { EVENT_TYPES } from '../application/shared/events.js';
+import { validateEvent, type EventName } from '../infrastructure/events/event-validator.js';
 import { AlertDispatchesConsumer } from '../infrastructure/messaging/alert-dispatches.consumer.js';
 import { OutboxDispatcher } from '../infrastructure/messaging/outbox.dispatcher.js';
 import { StorageQueues } from '../infrastructure/messaging/storage-queue.publisher.js';
@@ -43,6 +44,12 @@ export interface InfrastructureOptions {
   messaging: MessagingOptions;
   safety: SafetyConfig;
 }
+
+/** O JSON Schema (AsyncAPI) de cada evento que o serviço publica. */
+const SCHEMA_BY_TYPE: Record<string, EventName> = {
+  [EVENT_TYPES.helpRequestTriggered]: 'helpRequestTriggered',
+  [EVENT_TYPES.checkInDeadlineScheduled]: 'checkInDeadlineScheduled',
+};
 
 const DATA_SOURCE = Symbol('DataSource');
 const MESSAGING = Symbol('Messaging');
@@ -88,7 +95,18 @@ export class InfrastructureModule {
   static forRoot(options: InfrastructureOptions): DynamicModule {
     const { dataSource, schemas } = createDataSource(options.database);
     const cipher = new AesGcmFieldCipher(options.encryptionKey);
-    const uow = new TypeOrmUnitOfWork(dataSource, schemas, cipher, options.database.provider === 'sqlite');
+    // O serviço valida o que publica: evento fora do schema desfaz a transação em vez de ir para a fila.
+    const uow = new TypeOrmUnitOfWork(
+      dataSource,
+      schemas,
+      cipher,
+      options.database.provider === 'sqlite',
+      (message) => {
+        const schema = SCHEMA_BY_TYPE[message.type];
+        if (!schema) throw new Error(`Evento sem schema: ${message.type}.`);
+        validateEvent(schema, JSON.parse(message.payload));
+      },
+    );
     const clock = new SystemClock();
     const ids = new UuidV7Generator();
     const logger = new Logger('Messaging');

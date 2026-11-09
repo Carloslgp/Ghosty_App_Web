@@ -1,6 +1,7 @@
 import type { EntityManager } from 'typeorm';
-import type { CheckInRepository } from '../../../application/ports/check-in.repository.js';
+import type { CheckInFilter, CheckInRepository } from '../../../application/ports/check-in.repository.js';
 import type { FieldCipher } from '../../../application/ports/field-cipher.js';
+import type { Page } from '../../../application/shared/pagination.js';
 import { CheckIn, type CheckInStatus } from '../../../domain/check-ins/check-in.entity.js';
 import type { Mode } from '../../../domain/shared/domain-error.js';
 import type { CheckInRow, Schemas } from '../schemas.js';
@@ -41,6 +42,26 @@ export class TypeOrmCheckInRepository implements CheckInRepository {
   async findById(accountId: string, id: string): Promise<CheckIn | null> {
     const row = await this.rows.findOneBy({ accountId, id });
     return row ? this.toDomain(row) : null;
+  }
+
+  async findByIdInAnyAccount(id: string): Promise<CheckIn | null> {
+    const row = await this.rows.findOneBy({ id });
+    return row ? this.toDomain(row) : null;
+  }
+
+  async list(accountId: string, filter: CheckInFilter): Promise<Page<CheckIn>> {
+    const [rows, total] = await this.rows.findAndCount({
+      where: {
+        accountId,
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(filter.mode ? { mode: filter.mode } : {}),
+      },
+      // O id (UUID v7) desempata check-ins criados no mesmo instante.
+      order: { createdAt: 'DESC', id: 'DESC' },
+      skip: (filter.page - 1) * filter.pageSize,
+      take: filter.pageSize,
+    });
+    return { items: rows.map((row) => this.toDomain(row)), total };
   }
 
   async findActive(accountId: string, mode?: Mode): Promise<CheckIn | null> {

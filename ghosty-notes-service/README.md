@@ -2,7 +2,7 @@
 
 Microserviço do domínio **Notas** do Ghosty, com MongoDB Atlas.
 
-> **Status:** CRUD completo, com testes de unidade, de arquitetura e de integração (MongoDB em memória).
+> **Status:** pronto: CRUD completo, resumo para o painel e o seed de demonstração, com testes de unidade, de arquitetura e de integração (MongoDB em memória).
 
 ## Sobre o Ghosty
 
@@ -83,6 +83,9 @@ npm run start:dev       # porta 3001 · Swagger em http://localhost:3001/docs
 | `MONGODB_DB` | `notes_dev` | Nome do banco (`notes` na nuvem) |
 | `INTERNAL_API_KEY` | `dev-internal-key` | Chave exigida no `X-Internal-Key` |
 | `LOG_LEVEL` | `info` | Nível do log (JSON, com os campos sensíveis redigidos) |
+| `DEMO_ACCOUNT_ID` | UUID de exemplo | Só para o seed: o mesmo UUID do safety-service |
+
+**Seed de demonstração:** `npm run seed:demo` grava as 8 notas fictícias da conta demo (5 atualizadas nos últimos 14 dias, a lista do mercado fixada e o lembrete do dentista) e `npm run seed:reset` apaga só elas. Grava direto no MongoDB da `MONGODB_URI` (o Atlas, na preparação do vídeo).
 
 Exemplo de chamada (o BFF envia os dois cabeçalhos):
 
@@ -115,7 +118,9 @@ docker push <usuario>/ghosty-notes-service:v1
 
 ## Na nuvem (Azure)
 
-> Os links serão adicionados depois do deploy.
+Roda no Azure Container Apps (`app-notes`), com o MongoDB Atlas num cluster em região Azure e a URI no Key Vault. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
+
+> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
 
 ## Projetos do repositório
 

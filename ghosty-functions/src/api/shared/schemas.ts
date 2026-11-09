@@ -22,6 +22,17 @@ export const readinessRequestSchema = z.object({
   timezone: timezone.optional(),
 });
 
+/** Subconjunto do `Update` da Bot API. Campos extras são aceitos e ignorados. */
+export const telegramUpdateSchema = z.looseObject({
+  update_id: z.number().int(),
+  message: z
+    .looseObject({
+      text: z.string().max(4096).optional(),
+      chat: z.looseObject({ id: z.union([z.number().int(), z.string()]), type: z.string() }),
+    })
+    .optional(),
+});
+
 export const messagePreviewRequestSchema = z.object({
   template,
   displayName: z.string().min(1).max(80),

@@ -2,7 +2,10 @@ import { Banner, Button, Card, Spinner } from '@ghosty/ui';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAggregatedData, useAlertSettings, useSaveAlertSettings, type GeoPermission } from './api';
+import { ActiveCheckInCard } from './check-in';
 import { ContactList, MessageEditor, ReadinessCard } from './components';
+import { HelpFlow } from './help';
+import { DisabledFeatureList, SettingsScreen } from './info';
 import styles from './safety.module.css';
 
 /** Estado da permissão de localização, sem pedir nada (o pedido é feito no onboarding, em privado). */
@@ -71,18 +74,28 @@ export function OnboardingScreen() {
         <li>
           <Link to="/mensagem">Revise a mensagem e veja a prévia</Link>
         </li>
+        <li>
+          <Link to="/teste">Faça o primeiro Teste seguro</Link>
+        </li>
       </ol>
       <Button onClick={() => navigate('/painel')}>Ir para o painel</Button>
     </div>
   );
 }
 
+const daysSince = (iso: string) =>
+  Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+
 export function DashboardScreen() {
   const geo = useGeoPermission();
   const data = useAggregatedData(geo);
+  const navigate = useNavigate();
   if (data.isPending) return <Spinner />;
   if (data.isError) return <Banner tone="alert">Não foi possível carregar o painel agora.</Banner>;
   const { safety, disabledFeatures } = data.data;
+  // Sem o resumo (serviço fora do ar), o botão continua funcionando com os valores padrão.
+  const countdownSeconds = safety?.alertSettings.countdownSeconds ?? 10;
+  const includeLocation = safety?.alertSettings.includeLocation ?? true;
 
   return (
     <div className={styles.stack}>
@@ -93,31 +106,47 @@ export function DashboardScreen() {
           Sua rede ainda está vazia. <Link to="/onboarding">Comece por aqui</Link>.
         </Banner>
       )}
+      <Card>
+        <h2 className={styles.title}>Pedir ajuda</h2>
+        {safety !== null && safety.network.confirmed === 0 && (
+          <Banner tone="warning">
+            Nenhum contato confirmou o convite ainda: o pedido fica registrado, mas ninguém recebe o aviso.
+          </Banner>
+        )}
+        <HelpFlow
+          mode="real"
+          label="Pedir ajuda"
+          countdownSeconds={countdownSeconds}
+          includeLocation={includeLocation}
+          onTriggered={(request, report) => navigate(`/ajuda/${request.id}`, { state: { report } })}
+        />
+      </Card>
       <ReadinessCard data={data.data} />
-      {safety?.activeCheckIn && (
-        <Card>
-          <h2 className={styles.title}>Check-in ativo</h2>
-          <p>
-            {safety.activeCheckIn.destination}, até{' '}
-            {new Date(safety.activeCheckIn.deadlineAt).toLocaleTimeString('pt-BR', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </p>
-        </Card>
-      )}
+      {safety?.activeCheckIn && <ActiveCheckInCard checkIn={safety.activeCheckIn} />}
+      <Card>
+        <h2 className={styles.title}>Teste seguro</h2>
+        <p>
+          {safety?.lastTest
+            ? `Último teste há ${daysSince(safety.lastTest.at)} ${daysSince(safety.lastTest.at) === 1 ? 'dia' : 'dias'}.`
+            : 'Você ainda não fez um Teste seguro.'}{' '}
+          <Link to="/teste">Fazer um Teste seguro</Link>
+        </p>
+      </Card>
       {disabledFeatures.length > 0 && (
         <Card>
           <h2 className={styles.title}>Ainda não disponível</h2>
-          <ul className={styles.items}>
-            {disabledFeatures.map((feature) => (
-              <li key={feature.id}>{feature.reason}</li>
-            ))}
-          </ul>
+          <DisabledFeatureList features={disabledFeatures} />
         </Card>
       )}
     </div>
   );
+}
+
+/** Os recursos desligados vêm do painel (`disabledFeatures`). */
+export function SecuritySettingsScreen() {
+  const geo = useGeoPermission();
+  const data = useAggregatedData(geo);
+  return <SettingsScreen features={data.data?.disabledFeatures ?? []} />;
 }
 
 export function NetworkScreen() {

@@ -23,6 +23,11 @@ const schema = z
     MSSQL_PASSWORD: z.string().default(''),
     DB_POOL_MIN: z.coerce.number().int().min(0).default(0),
     DB_POOL_IDLE_MS: z.coerce.number().int().min(1_000).default(30_000),
+    /** Só com mssql: roda as migrações pendentes na subida (exige um usuário com permissão de DDL). */
+    DB_RUN_MIGRATIONS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
 
     INTERNAL_API_KEY: z.string().min(8, 'precisa ter pelo menos 8 caracteres'),
     DATA_ENCRYPTION_KEY: z
@@ -46,6 +51,19 @@ const schema = z
       .string()
       .regex(/^[A-Za-z0-9_]{5,32}$/, 'nome do bot sem @')
       .default('ghosty_dev_bot'),
+    APP_TIMEZONE: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat('pt-BR', { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'fuso horário desconhecido')
+      .default('America/Sao_Paulo'),
   })
   .superRefine((env, ctx) => {
     if (env.DB_PROVIDER === 'mssql') {

@@ -18,7 +18,11 @@
     "test:arch": "vitest run test/architecture",
     "test:cov": "vitest run --coverage",
     "build": "tsc -p tsconfig.build.json",
-    "openapi:export": "node dist/api/openapi-export.js"
+    "openapi:export": "node dist/api/openapi-export.js",
+    "migration:run": "npm run build && node dist/infrastructure/persistence/migrate.js",
+    "migration:show": "npm run build && node dist/infrastructure/persistence/migrate.js --show",
+    "seed:demo": "npm run build && node dist/seed/main.js demo",
+    "seed:reset": "npm run build && node dist/seed/main.js reset"
   },
   "dependencies": {
     "@azure/storage-queue": "^12.32.0",

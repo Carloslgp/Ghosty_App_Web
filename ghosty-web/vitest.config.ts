@@ -8,7 +8,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    include: ['apps/*/src/**/*.test.{ts,tsx}', 'packages/*/src/**/*.test.{ts,tsx}'],
+    include: ['apps/*/src/**/*.test.{ts,tsx}', 'packages/*/src/**/*.test.{ts,tsx}', 'test/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
     restoreMocks: true,
     css: { modules: { classNameStrategy: 'non-scoped' } },

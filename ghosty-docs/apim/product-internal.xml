@@ -1,0 +1,16 @@
+<!-- Produto internal: chave privada, para Swagger, testes e demonstração. 60 chamadas por minuto por chave. -->
+<policies>
+  <inbound>
+    <rate-limit calls="60" renewal-period="60" />
+    <base />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

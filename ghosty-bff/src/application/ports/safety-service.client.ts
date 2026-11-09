@@ -17,6 +17,41 @@ export interface IssuedRefreshToken {
   expiresAt: string;
 }
 
+export type ContactStatus = 'pending' | 'confirmed' | 'declined';
+
+/** O resumo da área de segurança (`GET /summary` do safety-service). */
+export interface SafetySummary {
+  displayName: string;
+  secretCodeSet: boolean;
+  network: {
+    total: number;
+    confirmed: number;
+    pending: number;
+    declined: number;
+    contacts: {
+      id: string;
+      nickname: string;
+      position: number;
+      status: ContactStatus;
+      channel: 'telegram' | 'web' | null;
+    }[];
+  };
+  alertSettings: {
+    messageTemplate: string;
+    includeLocation: boolean;
+    countdownSeconds: number;
+    reviewed: boolean;
+  };
+  activeCheckIn: {
+    id: string;
+    destination: string;
+    dueAt: string;
+    deadlineAt: string;
+    status: 'active';
+  } | null;
+  lastTest: { helpRequestId: string; at: string; outcome: 'ok' | 'failed' | 'pending' } | null;
+}
+
 /** Corpo JSON repassado como veio (o contrato do serviço define o formato). */
 export type Json = Record<string, unknown>;
 
@@ -43,10 +78,19 @@ export interface SafetyServiceClient {
   rotateRefreshToken(token: string, meta: RequestMeta): Promise<IssuedRefreshToken>;
   revokeRefreshToken(token: string, meta: RequestMeta): Promise<void>;
 
-  /** Rotas da pessoa usuária (`X-User-Id`), repassadas como estão. */
+  /** Rotas da pessoa usuária (`X-User-Id`), repassadas como estão. `headers`: ex. `Idempotency-Key`. */
   forUser(
     accountId: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body: Json | undefined,
+    meta: RequestMeta,
+    headers?: Record<string, string>,
+  ): Promise<UpstreamResponse>;
+  summary(accountId: string, meta: RequestMeta): Promise<SafetySummary>;
+  /** Rotas públicas do convite (sem `X-User-Id`): quem abre o link não tem conta. */
+  invitation(
+    method: 'GET' | 'POST',
     path: string,
     body: Json | undefined,
     meta: RequestMeta,

@@ -1,12 +1,14 @@
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import { BFF_CONFIG, type BffConfig } from '../application/ports/bff-config.js';
 import { CLOCK, type Clock } from '../application/ports/clock.js';
+import { FUNCTIONS } from '../application/ports/functions.client.js';
 import { ID_GENERATOR } from '../application/ports/id-generator.js';
 import { NOTES_SERVICE } from '../application/ports/notes-service.client.js';
 import { SAFETY_SERVICE } from '../application/ports/safety-service.client.js';
 import { SAFETY_SESSIONS } from '../application/ports/safety-session.store.js';
 import { TOKEN_SERVICE } from '../application/ports/token-service.js';
 import {
+  FunctionsHttpClient,
   NotesServiceHttpClient,
   SafetyServiceHttpClient,
 } from '../infrastructure/http/internal-services.clients.js';
@@ -22,6 +24,9 @@ export interface InfrastructureOptions {
     notesUrl: string;
     safetyUrl: string;
     internalApiKey: string;
+    functionsUrl: string;
+    /** Vazia na máquina local (o `func start` não exige a chave). */
+    functionsKey: string;
     timeoutMs: number;
   };
   config: BffConfig;
@@ -33,13 +38,12 @@ export interface InfrastructureOptions {
 export class InfrastructureModule {
   static forRoot(options: InfrastructureOptions): DynamicModule {
     const { services } = options;
-    const http = (service: string, baseUrl: string) =>
-      new ServiceHttpClient({
-        service,
-        baseUrl,
-        internalKey: services.internalApiKey,
-        timeoutMs: services.timeoutMs,
-      });
+    const http = (service: string, baseUrl: string, authHeaders: Record<string, string>) =>
+      new ServiceHttpClient({ service, baseUrl, authHeaders, timeoutMs: services.timeoutMs });
+    const internal = { 'X-Internal-Key': services.internalApiKey };
+    const functionsAuth: Record<string, string> = services.functionsKey
+      ? { 'x-functions-key': services.functionsKey }
+      : {};
     return {
       module: InfrastructureModule,
       providers: [
@@ -54,11 +58,15 @@ export class InfrastructureModule {
         },
         {
           provide: SAFETY_SERVICE,
-          useValue: new SafetyServiceHttpClient(http('safety-service', services.safetyUrl)),
+          useValue: new SafetyServiceHttpClient(http('safety-service', services.safetyUrl, internal)),
         },
         {
           provide: NOTES_SERVICE,
-          useValue: new NotesServiceHttpClient(http('notes-service', services.notesUrl)),
+          useValue: new NotesServiceHttpClient(http('notes-service', services.notesUrl, internal)),
+        },
+        {
+          provide: FUNCTIONS,
+          useValue: new FunctionsHttpClient(http('Azure Function', services.functionsUrl, functionsAuth)),
         },
       ],
       exports: [
@@ -69,6 +77,7 @@ export class InfrastructureModule {
         SAFETY_SESSIONS,
         SAFETY_SERVICE,
         NOTES_SERVICE,
+        FUNCTIONS,
       ],
     };
   }

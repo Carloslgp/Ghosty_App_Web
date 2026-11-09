@@ -2,7 +2,7 @@
 
 Azure Functions do Ghosty: cálculo, enriquecimento de dados e processamento de eventos.
 
-> **Status:** domínio (prontidão, mensagem, limite de caracteres, plano de envio e comandos do bot), funções HTTP `readiness`, `message-preview` e `openapi`, e os gatilhos de fila `dispatch-alert` e `check-in-deadline` prontos e testados. O webhook do Telegram e o `telegram:poll` chegam na próxima etapa.
+> **Status:** pronto e testado: domínio (prontidão, mensagem, limite de caracteres, plano de envio e comandos do bot), funções HTTP `readiness`, `message-preview`, `telegram-webhook` e `openapi`, os gatilhos de fila `dispatch-alert` e `check-in-deadline`, e os comandos `telegram:poll` e `telegram:webhook`.
 
 ## Sobre o Ghosty
 
@@ -46,7 +46,8 @@ src/
 ├── domain/          calculadoras e regras puras (prontidão, mensagem, limite de caracteres, plano de envio)
 ├── application/     casos de uso organizados por feature
 ├── infrastructure/  cliente HTTP do safety-service, publicação em filas e cliente do Telegram
-└── functions/       registro dos gatilhos HTTP e de fila (camada de entrada)
+├── api/             camada de entrada (API): registro dos gatilhos HTTP e de fila, cada função monta as próprias dependências
+└── cli/             ferramenta de linha de comando do bot (polling local e webhook), fora da aplicação
 ```
 
 ## Contrato e mock
@@ -78,6 +79,9 @@ npm start               # compila e roda o func start na porta 7071
 - Swagger UI em http://localhost:7071/api/docs e o contrato em http://localhost:7071/api/openapi.json.
 - `DELIVERY_MODE=simulated` (padrão): nada sai pelo Telegram, os passos ficam `would_send`. Com `telegram`, o `TELEGRAM_BOT_TOKEN` é obrigatório. O modo `test` (Teste seguro) nunca envia nada.
 - Depois de mudar `ghosty-docs/contracts/functions.openapi.yaml`, rode `npm run openapi:sync` (um teste falha se o JSON servido estiver diferente do contrato).
+- **Telegram na máquina local:** sem URL pública, o `npm run telegram:poll` lê as mensagens do bot de desenvolvimento (`getUpdates`) e as entrega ao mesmo código do webhook. Ele também é o jeito de descobrir o `chat_id` de uma conta de teste: ela manda `/start` ao bot.
+- **Na nuvem:** `npm run telegram:webhook -- set "https://<function>/api/telegram/webhook?code=<function key>"` registra o webhook com o `TELEGRAM_WEBHOOK_SECRET` (`info` e `delete` também existem). O webhook responde 401 sem o segredo e 200 para o resto, para o Telegram não reenviar.
+- **Sem o Core Tools:** `npm run start:local-host` sobe um host local mínimo (HTTP na 7071 e polling das filas no Azurite) com o mesmo código compilado. Ele é usado no teste de ponta a ponta.
 
 | Configuração | Local | Para quê |
 |---|---|---|
@@ -100,12 +104,15 @@ npm run typecheck
 ```
 
 - **Domínio:** pesos e níveis da prontidão, o texto exato da mensagem (os exemplos do contrato: 184 e 135 caracteres), o limite de 4.096, o plano de envio (ordem, `no_contacts`, modo teste e `simulated` sem Telegram) e os comandos `/start <token>` e `/parar`.
-- **Casos de uso:** com dublês do safety-service, da fila e do Telegram (os testes nunca falam com o Telegram): 403 vira `failed`, 429 tenta de novo, reprocessar não envia duas vezes.
+- **Casos de uso:** com dublês do safety-service, da fila e do Telegram (os testes nunca falam com o Telegram): 403 vira `failed`, 429 tenta de novo, reprocessar não envia duas vezes; `/start` com token válido vincula e responde no chat, token inválido é ignorado em silêncio, `/parar` sai da rede, grupos são ignorados.
+- **Webhook:** 401 sem o segredo (comparação em tempo constante, e sem segredo configurado nada confere), 200 `ignored` para o que não interessa, 500 com o safety-service fora do ar (o Telegram tenta de novo) e log só com o resultado.
 - **Contrato:** todos os exemplos do AsyncAPI passam nos JSON Schemas (`ajv`), mensagens erradas são recusadas, o `AlertDispatched` publicado passa no schema e o `openapi.json` servido é o contrato.
 
 ## Na nuvem (Azure)
 
-> Os links serão adicionados depois do deploy.
+Roda numa Function App (Flex Consumption; plano B: Consumption), com as configurações apontando para o Key Vault. O webhook do bot da nuvem é registrado no deploy. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
+
+> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
 
 ## Projetos do repositório
 

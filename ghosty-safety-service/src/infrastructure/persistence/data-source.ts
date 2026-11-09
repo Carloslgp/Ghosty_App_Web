@@ -12,13 +12,19 @@ export interface DatabaseOptions {
   /** Pool mínimo 0 e conexões ociosas fechadas: o Azure SQL serverless consegue pausar. */
   poolMin?: number;
   poolIdleMs?: number;
+  /**
+   * Roda as migrações pendentes ao abrir o banco. Desligado por padrão: no Azure SQL, quem roda o DDL é o
+   * `npm run migration:run`, com o usuário admin; o usuário da aplicação só lê e grava.
+   */
+  runMigrations?: boolean;
 }
 
 export const MSSQL_MIGRATIONS = [InitialSchema1731110400000];
 
 /**
  * - `sqlite` (máquina local e testes): o esquema é sincronizado automaticamente.
- * - `mssql` (Azure SQL): `synchronize` desligado; as migrações de `migrations/mssql` rodam na subida.
+ * - `mssql` (Azure SQL): `synchronize` desligado. As migrações de `migrations/mssql` rodam pelo
+ *   `npm run migration:run` (usuário admin), ou na subida com `DB_RUN_MIGRATIONS=true`.
  * O driver do SQLite (`better-sqlite3`) é devDependency e só é carregado com `sqlite`.
  */
 export function createDataSource(options: DatabaseOptions): { dataSource: DataSource; schemas: Schemas } {
@@ -43,8 +49,10 @@ export function createDataSource(options: DatabaseOptions): { dataSource: DataSo
       entities,
       synchronize: false,
       migrations: MSSQL_MIGRATIONS,
-      migrationsRun: true,
+      migrationsRun: options.runMigrations ?? false,
       options: { encrypt: true, trustServerCertificate: false },
+      // O Azure SQL serverless gratuito pausa sem uso e leva até 1 minuto para voltar.
+      connectionTimeout: 60_000,
       pool: { min: options.poolMin ?? 0, idleTimeoutMillis: options.poolIdleMs ?? 30_000 },
     };
   }

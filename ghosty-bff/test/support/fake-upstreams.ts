@@ -15,6 +15,10 @@ export class FakeUpstream {
   private readonly routes = new Map<string, Handler>();
   private server: Server | undefined;
   url = '';
+  /** Responde 503 a tudo, como um serviço fora do ar (a porta continua a mesma). */
+  down = false;
+  /** Atrasa cada resposta (para testar o limite de tempo do BFF). */
+  delayMs = 0;
 
   on(method: string, path: string | RegExp, handler: Handler): this {
     this.routes.set(`${method} ${path instanceof RegExp ? path.source : path}`, handler);
@@ -45,12 +49,19 @@ export class FakeUpstream {
         };
         this.calls.push(call);
         const handler = this.match(call.method, call.path.split('?')[0] ?? '/');
-        const result = handler
-          ? handler(call)
-          : { status: 404, body: { code: 'NOT_FOUND', detail: 'Não encontrado.' } };
-        const type = result.status >= 400 ? 'application/problem+json' : 'application/json';
-        res.writeHead(result.status, { 'Content-Type': type, ...(result.headers ?? {}) });
-        res.end(result.body === undefined ? '' : JSON.stringify(result.body));
+        const result = this.down
+          ? { status: 503, body: { code: 'UPSTREAM_UNAVAILABLE' } }
+          : handler
+            ? handler(call)
+            : { status: 404, body: { code: 'NOT_FOUND', detail: 'Não encontrado.' } };
+        const send = () => {
+          if (res.destroyed) return;
+          const type = result.status >= 400 ? 'application/problem+json' : 'application/json';
+          res.writeHead(result.status, { 'Content-Type': type, ...(result.headers ?? {}) });
+          res.end(result.body === undefined ? '' : JSON.stringify(result.body));
+        };
+        if (this.delayMs > 0) setTimeout(send, this.delayMs);
+        else send();
       });
     });
     await new Promise<void>((resolve) => this.server?.listen(0, '127.0.0.1', resolve));
@@ -59,11 +70,14 @@ export class FakeUpstream {
   }
 
   async stop(): Promise<void> {
+    this.server?.closeAllConnections();
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
   }
 
   reset(): void {
     this.calls.length = 0;
+    this.down = false;
+    this.delayMs = 0;
   }
 }
 

@@ -1,11 +1,13 @@
 import type { DataSource, EntityManager } from 'typeorm';
 import type { FieldCipher } from '../../application/ports/field-cipher.js';
+import type { OutboxMessage } from '../../application/ports/outbox.repository.js';
 import type { Repositories, UnitOfWork } from '../../application/ports/unit-of-work.js';
 import { TypeOrmAccountRepository } from './repositories/account.repository.js';
 import { TypeOrmAlertSettingsRepository } from './repositories/alert-settings.repository.js';
 import { TypeOrmCheckInRepository } from './repositories/check-in.repository.js';
 import { TypeOrmContactRepository } from './repositories/contact.repository.js';
 import { TypeOrmHelpRequestRepository } from './repositories/help-request.repository.js';
+import { TypeOrmIdempotencyKeyRepository } from './repositories/idempotency-key.repository.js';
 import {
   TypeOrmOutboxRepository,
   TypeOrmProcessedMessageRepository,
@@ -26,6 +28,8 @@ export class TypeOrmUnitOfWork implements UnitOfWork {
     private readonly schemas: Schemas,
     private readonly cipher: FieldCipher,
     private readonly serialize: boolean,
+    /** Confere cada mensagem antes de ela entrar no outbox. Se lançar, a transação inteira é desfeita. */
+    private readonly checkOutboxMessage?: (message: OutboxMessage) => void,
   ) {}
 
   /** Chamado logo depois de um commit que gravou mensagens no outbox. */
@@ -64,8 +68,9 @@ export class TypeOrmUnitOfWork implements UnitOfWork {
       alertSettings: new TypeOrmAlertSettingsRepository(manager, schemas, cipher),
       checkIns: new TypeOrmCheckInRepository(manager, schemas, cipher),
       helpRequests: new TypeOrmHelpRequestRepository(manager, schemas, cipher),
-      outbox: new TypeOrmOutboxRepository(manager, schemas),
+      outbox: new TypeOrmOutboxRepository(manager, schemas, this.checkOutboxMessage),
       processedMessages: new TypeOrmProcessedMessageRepository(manager, schemas),
+      idempotencyKeys: new TypeOrmIdempotencyKeyRepository(manager, schemas),
     };
   }
 }

@@ -3,6 +3,7 @@ import type { IdGenerator } from '../../src/application/ports/id-generator.js';
 import type { PasswordHasher } from '../../src/application/ports/password-hasher.js';
 import type { SafetyConfig } from '../../src/application/ports/safety-config.js';
 import type { Repositories } from '../../src/application/ports/unit-of-work.js';
+import { validateEvent, type EventName } from '../../src/infrastructure/events/event-validator.js';
 import { createDataSource } from '../../src/infrastructure/persistence/data-source.js';
 import { TypeOrmUnitOfWork } from '../../src/infrastructure/persistence/typeorm.unit-of-work.js';
 import { AesGcmFieldCipher } from '../../src/infrastructure/security/aes-gcm.field-cipher.js';
@@ -49,7 +50,22 @@ export const TEST_CONFIG: SafetyConfig = {
   inviteTtlHours: 72,
   inviteBaseUrl: 'http://localhost:5173/c',
   telegramBotUsername: 'ghosty_dev_bot',
+  timezone: 'America/Sao_Paulo',
 };
+
+const SCHEMA_BY_TYPE: Record<string, EventName> = {
+  'ghosty.safety.help-request.triggered.v1': 'helpRequestTriggered',
+  'ghosty.safety.check-in.deadline-scheduled.v1': 'checkInDeadlineScheduled',
+};
+
+/** Um evento gravado no outbox, já conferido contra o JSON Schema do AsyncAPI. */
+export interface OutboxEvent {
+  id: string;
+  type: string;
+  correlationId: string;
+  visibleAfter: Date | null;
+  data: Record<string, unknown>;
+}
 
 export interface SafetyKit {
   uow: TypeOrmUnitOfWork;
@@ -61,6 +77,8 @@ export interface SafetyKit {
   config: SafetyConfig;
   /** Atalho para ler ou gravar direto nos repositórios. */
   repos<T>(work: (repos: Repositories) => Promise<T>): Promise<T>;
+  /** Os eventos do outbox, do mais antigo para o mais novo. Falha se algum estiver fora do schema. */
+  outboxEvents(): Promise<OutboxEvent[]>;
   /** Consulta SQL crua (para conferir o que ficou gravado, por exemplo cifrado). */
   query<T = Record<string, unknown>>(sql: string): Promise<T[]>;
   close(): Promise<void>;
@@ -81,6 +99,20 @@ export async function createSafetyKit(now = new Date('2026-11-06T22:00:00Z')): P
     cipher,
     config: TEST_CONFIG,
     repos: (work) => uow.run(work),
+    outboxEvents: async () =>
+      (await uow.run(({ outbox }) => outbox.listPending(1000))).map((message) => {
+        const envelope = validateEvent<{ data: Record<string, unknown> }>(
+          SCHEMA_BY_TYPE[message.type] as EventName,
+          JSON.parse(message.payload),
+        );
+        return {
+          id: message.id,
+          type: message.type,
+          correlationId: message.correlationId,
+          visibleAfter: message.visibleAfter,
+          data: envelope.data,
+        };
+      }),
     query: (sql) => dataSource.query(sql),
     close: () => dataSource.destroy(),
   };

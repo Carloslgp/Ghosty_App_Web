@@ -21,6 +21,7 @@ export function appOptionsFrom(env: Env): AppOptions {
             },
             poolMin: env.DB_POOL_MIN,
             poolIdleMs: env.DB_POOL_IDLE_MS,
+            runMigrations: env.DB_RUN_MIGRATIONS,
           },
     messaging: {
       enabled: env.MESSAGING_ENABLED,
@@ -34,6 +35,7 @@ export function appOptionsFrom(env: Env): AppOptions {
       inviteTtlHours: env.INVITE_TTL_HOURS,
       inviteBaseUrl: env.INVITE_BASE_URL,
       telegramBotUsername: env.TELEGRAM_BOT_USERNAME,
+      timezone: env.APP_TIMEZONE,
     },
   };
 }

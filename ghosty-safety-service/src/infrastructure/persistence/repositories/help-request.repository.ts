@@ -1,6 +1,10 @@
-import { MoreThan, type EntityManager } from 'typeorm';
+import { In, MoreThan, type EntityManager } from 'typeorm';
 import type { FieldCipher } from '../../../application/ports/field-cipher.js';
-import type { HelpRequestRepository } from '../../../application/ports/help-request.repository.js';
+import type {
+  HelpRequestFilter,
+  HelpRequestRepository,
+} from '../../../application/ports/help-request.repository.js';
+import type { Page } from '../../../application/shared/pagination.js';
 import type {
   DeliveryChannel,
   DeliveryOutcome,
@@ -86,6 +90,25 @@ export class TypeOrmHelpRequestRepository implements HelpRequestRepository {
       order: { createdAt: 'DESC' },
     });
     return row ? this.toDomain(row) : null;
+  }
+
+  async list(accountId: string, filter: HelpRequestFilter): Promise<Page<HelpRequest>> {
+    const [rows, total] = await this.requests.findAndCount({
+      where: { accountId, ...(filter.mode ? { mode: filter.mode } : {}) },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      skip: (filter.page - 1) * filter.pageSize,
+      take: filter.pageSize,
+    });
+    return { items: rows.map((row) => this.toDomain(row)), total };
+  }
+
+  async findIdsByCheckIns(checkInIds: string[]): Promise<Map<string, string>> {
+    if (checkInIds.length === 0) return new Map();
+    const rows = await this.requests.find({
+      select: { id: true, checkInId: true },
+      where: { checkInId: In(checkInIds) },
+    });
+    return new Map(rows.map((row) => [row.checkInId as string, row.id]));
   }
 
   async insert(request: HelpRequest): Promise<void> {

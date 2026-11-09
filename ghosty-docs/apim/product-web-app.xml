@@ -1,0 +1,16 @@
+<!-- Produto web-app: a chave vai no front (identifica o app, não é segredo). 300 chamadas por minuto por chave. -->
+<policies>
+  <inbound>
+    <rate-limit calls="300" renewal-period="60" />
+    <base />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

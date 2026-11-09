@@ -1,9 +1,17 @@
-import type { NotesServiceClient } from '../../application/ports/notes-service.client.js';
+import type {
+  FunctionsClient,
+  MessagePreviewRequest,
+  MessagePreviewResult,
+  ReadinessRequest,
+  ReadinessResult,
+} from '../../application/ports/functions.client.js';
+import type { NotesServiceClient, NotesSummary } from '../../application/ports/notes-service.client.js';
 import type {
   IssuedRefreshToken,
   Json,
   SafetyAccount,
   SafetyServiceClient,
+  SafetySummary,
   UpstreamResponse,
 } from '../../application/ports/safety-service.client.js';
 import type { RequestMeta } from '../../application/ports/upstream-error.js';
@@ -78,8 +86,22 @@ export class SafetyServiceHttpClient implements SafetyServiceClient {
     path: string,
     body: Json | undefined,
     meta: RequestMeta,
+    headers?: Record<string, string>,
   ): Promise<UpstreamResponse> {
-    return this.http.call(method, path, { userId: accountId, body, meta });
+    return this.http.call(method, path, { userId: accountId, body, meta, headers });
+  }
+
+  async summary(accountId: string, meta: RequestMeta): Promise<SafetySummary> {
+    return (await this.http.call('GET', '/summary', { userId: accountId, meta })).body as SafetySummary;
+  }
+
+  invitation(
+    method: string,
+    path: string,
+    body: Json | undefined,
+    meta: RequestMeta,
+  ): Promise<UpstreamResponse> {
+    return this.http.call(method, path, { body, meta });
   }
 }
 
@@ -94,5 +116,26 @@ export class NotesServiceHttpClient implements NotesServiceClient {
     meta: RequestMeta,
   ): Promise<UpstreamResponse> {
     return this.http.call(method, path, { userId: accountId, body, meta });
+  }
+
+  async summary(accountId: string, timezone: string, meta: RequestMeta): Promise<NotesSummary> {
+    const query = new URLSearchParams({ timezone }).toString();
+    return (await this.http.call('GET', `/notes/summary?${query}`, { userId: accountId, meta }))
+      .body as NotesSummary;
+  }
+}
+
+/** As funções HTTP da Azure Function. Sem `FUNCTIONS_KEY` (máquina local), vai sem a chave. */
+export class FunctionsHttpClient implements FunctionsClient {
+  constructor(private readonly http: ServiceHttpClient) {}
+
+  async readiness(request: ReadinessRequest, meta: RequestMeta): Promise<ReadinessResult> {
+    return (await this.http.call('POST', '/api/readiness', { body: { ...request }, meta }))
+      .body as ReadinessResult;
+  }
+
+  async messagePreview(request: MessagePreviewRequest, meta: RequestMeta): Promise<MessagePreviewResult> {
+    return (await this.http.call('POST', '/api/message-preview', { body: { ...request }, meta }))
+      .body as MessagePreviewResult;
   }
 }

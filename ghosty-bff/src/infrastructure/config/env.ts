@@ -16,14 +16,17 @@ const duration = (fallback: string) =>
     .refine((value) => /^(\d+)\s*([smh]?)$/.test(value.trim()), 'use 15m, 10m, 1h ou segundos')
     .transform(parseDuration);
 
+/** Origens separadas por vírgula. `none`: o BFF não responde CORS (na nuvem, quem responde é o APIM). */
 const list = z
   .string()
   .default('http://localhost:5173')
   .transform((value) =>
-    value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean),
+    value.trim() === 'none'
+      ? []
+      : value
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
   );
 
 const schema = z
@@ -54,6 +57,20 @@ const schema = z
     FUNCTIONS_KEY: z.string().default(''),
     SAFETY_REMOTE_URL: z.url().default('http://localhost:5175/remoteEntry.js'),
     UPSTREAM_TIMEOUT_MS: z.coerce.number().int().min(100).default(3_000),
+    /** Fuso do painel ("lembretes de hoje") e da hora na prévia da mensagem. */
+    APP_TIMEZONE: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat('pt-BR', { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'fuso horário desconhecido')
+      .default('America/Sao_Paulo'),
 
     RATE_LIMIT_LOGIN_PER_MINUTE: z.coerce.number().int().min(1).default(5),
     RATE_LIMIT_USER_PER_MINUTE: z.coerce.number().int().min(1).default(60),
@@ -62,6 +79,13 @@ const schema = z
     if (env.NODE_ENV !== 'production') return;
     if (env.JWT_PRIVATE_KEY_PEM_B64 === '') {
       ctx.addIssue({ code: 'custom', path: ['JWT_PRIVATE_KEY_PEM_B64'], message: 'obrigatória em produção' });
+    }
+    if (env.FUNCTIONS_KEY === '') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['FUNCTIONS_KEY'],
+        message: 'obrigatória em produção (chave da Function App)',
+      });
     }
     if (env.GATEWAY_SECRET === '') {
       ctx.addIssue({

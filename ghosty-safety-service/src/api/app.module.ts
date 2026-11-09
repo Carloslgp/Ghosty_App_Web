@@ -1,7 +1,9 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { AccountsModule } from './features/accounts/accounts.module.js';
+import { CheckInsModule } from './features/check-ins/check-ins.module.js';
 import { ContactsModule } from './features/contacts/contacts.module.js';
+import { HelpRequestsModule } from './features/help-requests/help-requests.module.js';
 import { SettingsModule } from './features/settings/settings.module.js';
 import { InfrastructureModule, type InfrastructureOptions } from './infrastructure.module.js';
 import { INTERNAL_API_KEY, InternalKeyGuard } from './platform/internal-key.guard.js';
@@ -26,6 +28,8 @@ export class AppModule {
         AccountsModule,
         ContactsModule,
         SettingsModule,
+        CheckInsModule,
+        HelpRequestsModule,
       ],
       providers: [
         { provide: INTERNAL_API_KEY, useValue: options.internalApiKey },

@@ -1,0 +1,64 @@
+# Teste de ponta a ponta com os serviços reais (sem Docker e sem Azure): Azurite, safety-service com
+# SQLite, notes-service com MongoDB em memória, as Functions num host local e o BFF. O fluxo cobre do
+# cadastro ao check-in vencido pela fila com atraso (ghosty-docs/scripts/e2e-flow.mjs).
+name: e2e
+
+on:
+  pull_request:
+    paths:
+      - 'ghosty-bff/**'
+      - 'ghosty-notes-service/**'
+      - 'ghosty-safety-service/**'
+      - 'ghosty-functions/**'
+      - 'ghosty-docs/asyncapi/**'
+      - 'ghosty-docs/scripts/e2e-*'
+      - .nvmrc
+      - .github/workflows/e2e.yml
+  push:
+    branches: [main]
+    paths:
+      - 'ghosty-bff/**'
+      - 'ghosty-notes-service/**'
+      - 'ghosty-safety-service/**'
+      - 'ghosty-functions/**'
+      - 'ghosty-docs/asyncapi/**'
+      - 'ghosty-docs/scripts/e2e-*'
+      - .nvmrc
+      - .github/workflows/e2e.yml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: ponta a ponta
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            ghosty-bff/package-lock.json
+            ghosty-notes-service/package-lock.json
+            ghosty-safety-service/package-lock.json
+            ghosty-functions/package-lock.json
+
+      - name: Instalar e compilar os 4 projetos
+        run: |
+          for dir in ghosty-safety-service ghosty-notes-service ghosty-functions ghosty-bff; do
+            echo "::group::$dir"
+            (cd "$dir" && npm ci && npm run build)
+            echo "::endgroup::"
+          done
+
+      - name: Fluxo de ponta a ponta
+        run: bash ghosty-docs/scripts/e2e-local.sh

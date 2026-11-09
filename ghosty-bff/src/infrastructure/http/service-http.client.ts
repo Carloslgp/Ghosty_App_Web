@@ -5,7 +5,8 @@ export interface ServiceHttpOptions {
   /** Nome do serviço nas mensagens de erro (ex.: `notes-service`). */
   service: string;
   baseUrl: string;
-  internalKey: string;
+  /** Cabeçalhos de autenticação do serviço: `X-Internal-Key` nos microserviços, `x-functions-key` na Function. */
+  authHeaders: Record<string, string>;
   timeoutMs: number;
 }
 
@@ -13,6 +14,8 @@ export interface CallOptions {
   userId?: string;
   body?: Json;
   meta: RequestMeta;
+  /** Cabeçalhos extras repassados ao serviço (ex.: `Idempotency-Key`). */
+  headers?: Record<string, string>;
   /** O 401 é uma resposta esperada (senha, código ou refresh token errado), e não chave interna recusada. */
   authCall?: boolean;
 }
@@ -24,7 +27,7 @@ interface Problem {
 }
 
 /**
- * Chamada a um serviço interno, com `X-Internal-Key`, `X-User-Id` e `X-Correlation-Id`, e timeout.
+ * Chamada a um serviço interno, com a chave de acesso, `X-User-Id` e `X-Correlation-Id`, e timeout.
  * - Sem resposta, timeout ou 5xx: `UPSTREAM_UNAVAILABLE` (503).
  * - 401 fora das chamadas de autenticação: a chave interna foi recusada, o que é erro de configuração
  *   do BFF (500), e não "sessão inválida" do cliente.
@@ -35,7 +38,8 @@ export class ServiceHttpClient {
 
   async call(method: string, path: string, call: CallOptions): Promise<UpstreamResponse> {
     const headers: Record<string, string> = {
-      'X-Internal-Key': this.options.internalKey,
+      ...call.headers,
+      ...this.options.authHeaders,
       Accept: 'application/json',
     };
     if (call.userId) headers['X-User-Id'] = call.userId;
@@ -64,7 +68,7 @@ export class ServiceHttpClient {
 
     if (response.status >= 500) throw UpstreamError.unavailable(this.options.service);
     if (response.status === 401 && !call.authCall) {
-      throw new UpstreamError('INTERNAL_ERROR', 500, `O ${this.options.service} recusou a chave interna.`);
+      throw new UpstreamError('INTERNAL_ERROR', 500, `O ${this.options.service} recusou a chave de acesso.`);
     }
     if (response.status >= 400) {
       const problem = (body ?? {}) as Problem;

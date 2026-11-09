@@ -24,4 +24,15 @@ export interface SafetyInternalClient {
     version: number,
     correlationId: string,
   ): Promise<{ result: 'expired' | 'ignored'; helpRequestId: string | null }>;
+  /** `/start <token>`: vincula o chat ao contato do convite. Token inválido ou já usado: `ignored`. */
+  linkTelegramContact(
+    token: string,
+    chatId: string,
+    correlationId: string,
+  ): Promise<{ result: 'linked' | 'ignored'; inviterDisplayName: string | null }>;
+  /** `/parar`: tira da rede todos os contatos confirmados com esse chat. */
+  leaveTelegramContact(
+    chatId: string,
+    correlationId: string,
+  ): Promise<{ result: 'left' | 'ignored'; contactsAffected: number }>;
 }

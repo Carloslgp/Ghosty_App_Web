@@ -13,6 +13,7 @@ import {
   type RemoteLoaders,
 } from './notes/RemoteHosts';
 import { LoginPage, RegisterPage } from './pages/AuthPages';
+import { InvitePage } from './pages/InvitePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { useSafetyUnlock } from './safety/useSafetyUnlock';
 
@@ -81,6 +82,8 @@ export function AppRoutes() {
           </GuestOnly>
         }
       />
+      {/* Pública: quem abre o convite não tem conta. */}
+      <Route path="/c/:token" element={<InvitePage />} />
       <Route
         path="/configuracoes"
         element={

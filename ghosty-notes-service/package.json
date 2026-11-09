@@ -19,7 +19,9 @@
     "test:arch": "vitest run test/architecture",
     "test:cov": "vitest run --coverage",
     "build": "tsc -p tsconfig.build.json",
-    "openapi:export": "node dist/api/openapi-export.js"
+    "openapi:export": "node dist/api/openapi-export.js",
+    "seed:demo": "npm run build && node dist/seed/main.js demo",
+    "seed:reset": "npm run build && node dist/seed/main.js reset"
   },
   "dependencies": {
     "@nestjs/common": "^12.4.2",
