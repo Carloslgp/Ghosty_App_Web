@@ -1,0 +1,109 @@
+# Tudo em containers, para quando houver Docker na máquina (a solução principal roda sem Docker).
+#
+#   cd ghosty-docs/compose && docker compose up --build
+#
+# - O safety-service usa o SQL Server em container (a imagem de produção não tem o driver do SQLite).
+#   O serviço "migracoes" cria o banco e aplica as migrações antes de ele subir.
+# - As Functions rodam fora do compose (cd ghosty-functions && npm start): o BFF e o safety-service as
+#   chamam por host.docker.internal:7071, e elas leem as filas do Azurite pela porta 10001.
+# - O front roda fora também (cd ghosty-web && npm run dev), apontando para o BFF em localhost:3000.
+# Valores só de desenvolvimento: nada aqui vale para a nuvem.
+name: ghosty-local
+
+x-internal: &internal
+  INTERNAL_API_KEY: dev-internal-key
+  LOG_LEVEL: info
+
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck --inMemoryPersistence
+    ports: ['10000:10000', '10001:10001', '10002:10002']
+
+  mongo:
+    image: mongo:8.0
+    volumes: [mongo-data:/data/db]
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: Dev-Senha-Local-123
+    volumes: [sql-data:/var/opt/mssql]
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Dev-Senha-Local-123' -Q 'SELECT 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  banco:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver: { condition: service_healthy }
+    entrypoint:
+      - /opt/mssql-tools18/bin/sqlcmd
+      - -C
+      - -S
+      - sqlserver
+      - -U
+      - sa
+      - -P
+      - Dev-Senha-Local-123
+      - -Q
+      - "IF DB_ID('safety') IS NULL CREATE DATABASE safety"
+    restart: 'no'
+
+  migracoes:
+    build: ../../ghosty-safety-service
+    depends_on:
+      banco: { condition: service_completed_successfully }
+    command: ['node', 'dist/infrastructure/persistence/migrate.js']
+    environment: &safety-env
+      <<: *internal
+      NODE_ENV: development
+      DB_PROVIDER: mssql
+      MSSQL_HOST: sqlserver
+      MSSQL_DATABASE: safety
+      MSSQL_USER: sa
+      MSSQL_PASSWORD: Dev-Senha-Local-123
+      DATA_ENCRYPTION_KEY: Y2hhdmUtbG9jYWwtZGUtZGVzZW52b2x2aW1lbnRvISE=
+      QUEUE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;QueueEndpoint=http://azurite:10001/devstoreaccount1;
+      INVITE_BASE_URL: http://localhost:5173/c
+    restart: 'no'
+
+  safety-service:
+    build: ../../ghosty-safety-service
+    depends_on:
+      migracoes: { condition: service_completed_successfully }
+      azurite: { condition: service_started }
+    environment: *safety-env
+    ports: ['3002:3002']
+
+  notes-service:
+    build: ../../ghosty-notes-service
+    depends_on: [mongo]
+    environment:
+      <<: *internal
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB: notes_dev
+    ports: ['3001:3001']
+
+  bff:
+    build: ../../ghosty-bff
+    depends_on: [notes-service, safety-service]
+    environment:
+      <<: *internal
+      NOTES_SERVICE_URL: http://notes-service:3001
+      SAFETY_SERVICE_URL: http://safety-service:3002
+      FUNCTIONS_BASE_URL: http://host.docker.internal:7071
+      CORS_ORIGINS: http://localhost:5173
+    extra_hosts: ['host.docker.internal:host-gateway']
+    ports: ['3000:3000']
+
+volumes:
+  mongo-data:
+  sql-data:

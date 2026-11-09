@@ -2,7 +2,7 @@
 
 Documentação e infraestrutura do Ghosty.
 
-> **Status:** contratos v0 prontos (4 OpenAPI e o AsyncAPI), com mocks e validação no CI. O restante da documentação é produzido ao longo das sprints.
+> **Status:** contratos (4 OpenAPI e o AsyncAPI) com mocks e validação no CI, C4, rascunho do arc42, políticas do API Management, implantação na Azure por script, desenvolvimento local com um comando e o teste de ponta a ponta.
 
 ## Sobre o Ghosty
 
@@ -32,18 +32,21 @@ flowchart LR
 ## Este projeto
 
 ```text
-contracts/   contratos OpenAPI do BFF, do notes-service, do safety-service e das functions   (pronto, v0)
-asyncapi/    especificação dos eventos (AsyncAPI 3.0), JSON Schemas e mensagens de exemplo     (pronto, v0)
-scripts/     teste de fumaça dos mocks; depois, os scripts de desenvolvimento local e de nuvem
+contracts/   contratos OpenAPI do BFF, do notes-service, do safety-service e das functions
+asyncapi/    especificação dos eventos (AsyncAPI 3.0), JSON Schemas e mensagens de exemplo
+c4/          diagramas C4: contexto, containers e componentes (Mermaid)
+arc42/       documentação de arquitetura (exportada em PDF para a entrega)
+apim/        políticas do Azure API Management (XML) e os named values
+infra/       implantação na Azure com o Azure CLI (deploy.sh), por passos
+compose/     docker compose para rodar tudo com containers (quando houver Docker)
+scripts/     desenvolvimento local, teste de ponta a ponta, página de documentação e fumaça dos mocks
 test/        validação dos contratos (convenções, AsyncAPI e exemplos com ajv)
-arc42/       documentação de arquitetura (exportada em PDF para a entrega)                       (a fazer)
-c4/          diagramas C4: contexto, containers e componentes                                    (a fazer)
-apim/        políticas do Azure API Management                                                   (a fazer)
-compose/     docker-compose para rodar tudo com containers                                       (a fazer)
 ```
 
 - [Contratos de API, convenções e guia dos mocks](contracts/README.md)
 - [Eventos (AsyncAPI)](asyncapi/README.md)
+- [C4 Model](c4/README.md) · [arc42](arc42/arc42.md)
+- [Políticas do API Management](apim/README.md) · [Implantação na Azure](infra/README.md)
 
 ## Como rodar localmente
 
@@ -59,9 +62,30 @@ npm run mock:all     # mocks: BFF :4010 · notes-service :4011 · safety-service
 |---|---|
 | `npm run mock:all` | Sobe os 4 mocks do Prism a partir dos contratos (ou `mock:bff`, `mock:notes`, `mock:safety`, `mock:functions`) |
 | `npm run lint` | Lint dos 4 contratos OpenAPI (Redocly) e formatação (Prettier) |
-| `npm test` | Convenções dos contratos, validade do AsyncAPI e exemplos de eventos contra os schemas (`ajv`) |
+| `npm test` | Convenções dos contratos, validade do AsyncAPI, exemplos de eventos contra os schemas (`ajv`) e o arc42 (seções, links da entrega e o PDF montado com o C4) |
 | `npm run test:mocks` | Sobe os 4 mocks, faz chamadas reais e derruba tudo |
+| `npm run e2e:local` | Teste de ponta a ponta com os serviços reais (precisa do build dos 4 backends) |
+| `npm run asyncapi:html` | HTML navegável dos eventos em `site/events` (gerador oficial, baixado pelo `npx`) |
+| `npm run site:build` | Página de documentação em `site/` (links, Swagger UI de cada API e os eventos) |
+| `npm run arc42:pdf` | PDF da entrega em `dist/arc42/arc42.pdf`: o arc42 com o C4 em anexo e os diagramas desenhados (usa o Chrome em modo headless; sem internet, `MERMAID_JS=<mermaid.min.js local>`) |
 | `npm run format` | Formata YAML, JSON e scripts com o Prettier |
+
+### Tudo de uma vez na máquina local
+
+```bash
+bash scripts/dev-local.sh --install   # na primeira vez (npm ci nos 6 projetos); depois, sem --install
+```
+
+Sobe filas (Azurite), safety-service (SQLite), notes-service (MongoDB em memória), Functions, BFF e o front (5173, 5174 e 5175) num terminal só, e cria os `.env` a partir dos exemplos na primeira vez. As Functions sobem com o `func start` se o Core Tools estiver instalado; sem ele, com o host local de testes.
+
+### Teste de ponta a ponta
+
+```bash
+for d in ghosty-safety-service ghosty-notes-service ghosty-functions ghosty-bff; do (cd ../$d && npm ci && npm run build); done
+npm run e2e:local
+```
+
+O fluxo ([`scripts/e2e-flow.mjs`](scripts/e2e-flow.mjs)) passa por cadastro, notas, desbloqueio, rede de apoio (um contato pelo `/start` do bot e outro pelo navegador), mensagem e prévia, `/aggregated-data`, Teste seguro (nada enviado), pedido de ajuda real (aviso na página do contato), check-in estendido e confirmado, check-in de ensaio que vence pela fila com atraso, saída rápida e exclusão da conta. O workflow `e2e.yml` roda o mesmo teste no GitHub Actions. Na nuvem, o passo `smoke` do `infra/deploy.sh` roda o fluxo pelo API Management.
 
 ## CI
 
@@ -69,7 +93,7 @@ O workflow `ci-docs.yml` roda `lint`, `test` e `test:mocks` a cada pull request 
 
 ## Links da entrega
 
-> Preenchidos depois do deploy.
+> Preenchidos depois do deploy (`bash infra/deploy.sh status`). A página de documentação publicada no Static Web App `web-docs` reúne todos.
 
 | Item | Link |
 |---|---|

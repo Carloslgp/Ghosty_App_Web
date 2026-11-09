@@ -2,7 +2,7 @@
 
 App web de segurança pessoal discreto. Por fora, é um app de notas comum que funciona de verdade. Por dentro, tem uma área de segurança para avisar a rede de apoio da pessoa.
 
-> **Status:** os 5 projetos de código estão implementados e testados para a primeira etapa: CRUD de notas e da rede de apoio de ponta a ponta na máquina local (front → BFF → notes-service e safety-service), autenticação com JWT RS256, sessão segura, mensageria com outbox e as funções de prontidão, prévia e envio dos avisos. Pedido de ajuda, Teste seguro, check-in, `/aggregated-data` real e o webhook do Telegram chegam na próxima etapa.
+> **Status:** os 5 projetos de código estão implementados e testados: fachada de notas, desbloqueio pela busca, rede de apoio com convites (Telegram ou navegador), mensagem com prévia, pedido de ajuda, Teste seguro, check-in com prazo pela fila, `GET /aggregated-data` com as 3 fontes, PWA e saída rápida. O fluxo inteiro roda de ponta a ponta com os serviços reais (no CI também). A implantação na Azure está pronta em script ([`ghosty-docs/infra`](ghosty-docs/infra)).
 
 Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) mostra tudo o que aconteceria sem enviar nada. O Ghosty **não aciona** polícia nem serviços de emergência e não os substitui: 190 (Polícia Militar), 180 (Central de Atendimento à Mulher) e 192 (SAMU).
 
@@ -48,6 +48,9 @@ Cada pasta tem o próprio README, com detalhes e instruções para rodar.
 
 Pré-requisito: Node.js 24 LTS (versão em [`.nvmrc`](.nvmrc)). Cada projeto é independente: tem o próprio `package.json` e roda com `npm ci` dentro da pasta.
 
+- **Tudo de uma vez.** `bash ghosty-docs/scripts/dev-local.sh --install` sobe filas, os 3 serviços, as Functions e o front num terminal só (veja o [`ghosty-docs`](ghosty-docs)).
+- **Ponta a ponta.** `bash ghosty-docs/scripts/e2e-local.sh` roda o fluxo completo contra os serviços reais, sem Docker e sem Azure; o workflow `e2e.yml` faz o mesmo no GitHub Actions.
+- **Nuvem.** [`ghosty-docs/infra/deploy.sh`](ghosty-docs/infra/deploy.sh) cria e configura tudo na Azure com o Azure CLI, por passos que podem rodar de novo, e termina com os testes de fumaça.
 - **Contratos primeiro.** Os contratos OpenAPI e AsyncAPI ficam em [`ghosty-docs/contracts/`](ghosty-docs/contracts) e [`ghosty-docs/asyncapi/`](ghosty-docs/asyncapi). Cada frente desenvolve contra um mock gerado do contrato:
 
   ```bash

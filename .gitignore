@@ -53,3 +53,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Configuração da implantação na Azure (cópia local do azure.env.example)
+ghosty-docs/infra/azure.env
