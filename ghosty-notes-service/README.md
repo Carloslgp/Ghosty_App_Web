@@ -2,7 +2,7 @@
 
 Microserviço do domínio **Notas** do Ghosty, com MongoDB Atlas.
 
-> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
+> **Status:** CRUD completo, com testes de unidade, de arquitetura e de integração (MongoDB em memória).
 
 ## Sobre o Ghosty
 
@@ -33,16 +33,17 @@ flowchart LR
 
 Responsável pelas notas do app: notas de texto e checklists, com cores, etiquetas, fixar, arquivar e lembretes. Oferece CRUD completo, documentado com Swagger. Só é chamado pelo BFF.
 
-Casos de uso (vertical slices) previstos: `CreateNote`, `ListNotes`, `GetNote`, `UpdateNote`, `PatchNote`, `DeleteNote`, `DeleteAllNotesOfOwner` e `GetNotesSummary`.
+Casos de uso (vertical slices): `CreateNote`, `ListNotes`, `GetNote`, `UpdateNote`, `PatchNote`, `DeleteNote`, `DeleteAllNotesOfOwner` e `GetNotesSummary`.
 
 ### Organização do código (Clean Architecture + Vertical Slice)
 
 ```text
 src/
 ├── domain/          entidade Note, itens de checklist e regras
-├── application/     casos de uso organizados por feature (features/<feature>/<caso-de-uso>/)
-├── infrastructure/  repositório MongoDB e configuração
-└── api/             controllers, DTOs, guards e Swagger (composição)
+├── application/     casos de uso (features/notes/<caso-de-uso>/) e portas (repositório, relógio, ids)
+├── infrastructure/  repositório MongoDB (índices), variáveis com zod, relógio e UUID v7
+└── api/             controllers, DTOs, guard da chave interna, Swagger e composição (useFactory)
+    └── platform/    Problem Details, logs, /health e Swagger (cópia de config/nest, não editar)
 ```
 
 As regras de dependência entre as camadas são verificadas por testes de arquitetura.
@@ -63,21 +64,45 @@ A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquite
 
 ## Como rodar localmente
 
-> Em construção.
-
-Pré-requisito: Node.js 24 LTS (versão em `.nvmrc`).
-
-Comandos previstos:
+Pré-requisito: Node.js 24 LTS (versão em `.nvmrc`). Não precisa de Docker nem do Atlas.
 
 ```bash
 npm ci
-cp .env.example .env    # MONGODB_URI do Atlas
+cp .env.example .env    # sem MONGODB_URI, usa um MongoDB em memória
 npm run start:dev       # porta 3001 · Swagger em http://localhost:3001/docs
+```
+
+- `npm run start:memory` força o MongoDB em memória mesmo com `MONGODB_URI` preenchida. Os dados somem quando o serviço para.
+- Com o Atlas, preencha `MONGODB_URI` (banco `notes_dev`). Os índices são criados na subida.
+- `npm run build && npm start` roda a versão compilada (`dist/`).
+
+| Variável | Padrão local | Para quê |
+|---|---|---|
+| `PORT` | `3001` | Porta HTTP |
+| `MONGODB_URI` | vazia (MongoDB em memória) | URI do Atlas. Obrigatória em produção |
+| `MONGODB_DB` | `notes_dev` | Nome do banco (`notes` na nuvem) |
+| `INTERNAL_API_KEY` | `dev-internal-key` | Chave exigida no `X-Internal-Key` |
+| `LOG_LEVEL` | `info` | Nível do log (JSON, com os campos sensíveis redigidos) |
+
+Exemplo de chamada (o BFF envia os dois cabeçalhos):
+
+```bash
+curl -X POST http://localhost:3001/notes   -H "X-Internal-Key: dev-internal-key"   -H "X-User-Id: 01a15965-b480-79af-a113-29b2fc82e5ef"   -H "Content-Type: application/json"   -d "{\"kind\":\"checklist\",\"title\":\"Mercado\",\"items\":[{\"text\":\"pão\"}]}"
 ```
 
 ## Testes
 
-> Em construção. Comandos previstos: `npm test` (unidade, arquitetura e integração).
+```bash
+npm test             # unidade, arquitetura e integração
+npm run test:cov     # cobertura de domain + application (mínimo de 80%)
+npm run lint         # ESLint + Prettier
+npm run typecheck
+npm run openapi:export   # grava o OpenAPI gerado pelo código em dist/openapi.json
+```
+
+- **Unidade:** regras da nota (título ou conteúdo, tipos, limites, conversão que preserva o texto, versão) e os 8 casos de uso, com um repositório em memória.
+- **Arquitetura:** as regras de camadas, slices e nomes de `config/architecture`.
+- **Integração:** HTTP + MongoDB em memória (`mongodb-memory-server`, que baixa o binário do MongoDB na primeira execução): proteções (`X-Internal-Key`, `X-User-Id`), Problem Details, 409 de versão, 404 de outra conta, índices e Swagger.
 
 ## Docker
 

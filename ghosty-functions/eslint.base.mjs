@@ -49,7 +49,12 @@ export default defineConfig([
       '@typescript-eslint/unbound-method': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      // Dublês implementam portas assíncronas sem precisar esperar nada.
+      '@typescript-eslint/require-await': 'off',
     },
   },
 

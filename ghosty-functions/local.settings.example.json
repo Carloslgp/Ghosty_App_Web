@@ -1,0 +1,19 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "QueueConnection": "UseDevelopmentStorage=true",
+    "SAFETY_SERVICE_URL": "http://localhost:3002",
+    "INTERNAL_API_KEY": "dev-internal-key",
+    "APP_TIMEZONE": "America/Sao_Paulo",
+    "DELIVERY_MODE": "simulated",
+    "TELEGRAM_BOT_TOKEN": "",
+    "TELEGRAM_WEBHOOK_SECRET": "",
+    "TELEGRAM_BOT_USERNAME": "ghosty_dev_bot",
+    "QUEUE_ALERT_DISPATCHES": "alert-dispatches"
+  },
+  "Host": {
+    "CORS": "http://localhost:3000"
+  }
+}

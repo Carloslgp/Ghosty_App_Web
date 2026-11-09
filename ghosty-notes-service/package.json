@@ -1,0 +1,61 @@
+{
+  "name": "ghosty-notes-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Microserviço de notas (MongoDB)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node dist/api/main.js",
+    "start:dev": "nest start --watch",
+    "start:memory": "nest start --watch -- --memory",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:arch": "vitest run test/architecture",
+    "test:cov": "vitest run --coverage",
+    "build": "tsc -p tsconfig.build.json",
+    "openapi:export": "node dist/api/openapi-export.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^12.4.2",
+    "@nestjs/core": "^12.4.2",
+    "@nestjs/platform-express": "^12.4.2",
+    "@nestjs/swagger": "^12.1.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "mongodb": "^7.8.0",
+    "nestjs-pino": "^5.3.1",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "uuid": "^14.0.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@nestjs/cli": "^12.0.12",
+    "@nestjs/testing": "^12.4.2",
+    "@swc/core": "^1.16.22",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "@types/supertest": "^7.2.1",
+    "@vitest/coverage-v8": "^5.1.0",
+    "archunit": "^2.5.4",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "mongodb-memory-server": "^11.3.0",
+    "prettier": "^3.9.10",
+    "supertest": "^7.3.2",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "unplugin-swc": "^2.0.0",
+    "vitest": "^5.1.0"
+  }
+}

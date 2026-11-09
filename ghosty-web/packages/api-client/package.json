@@ -1,0 +1,12 @@
+{
+  "name": "@ghosty/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "npx --yes openapi-typescript@7.13.0 ../../../ghosty-docs/contracts/bff.openapi.yaml -o src/schema.d.ts"
+  }
+}

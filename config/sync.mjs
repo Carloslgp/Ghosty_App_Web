@@ -28,14 +28,38 @@ const GROUPS = {
     ['config/vitest.base.ts', 'vitest.base.ts'],
     ['config/architecture/architecture.rules.ts', 'test/architecture/architecture.rules.ts'],
   ],
+  // Código comum da camada api dos serviços NestJS (Problem Details, logs, /health, Swagger).
+  nest: [
+    'bootstrap.ts',
+    'correlation-id.ts',
+    'health.controller.ts',
+    'logger.ts',
+    'openapi.ts',
+    'platform.module.ts',
+    'problem-details.ts',
+    'public.decorator.ts',
+  ].map((file) => [`config/nest/platform/${file}`, `src/api/platform/${file}`]),
+  // JSON Schemas dos eventos (AsyncAPI): quem publica e quem consome valida as mensagens com eles.
+  events: [
+    'alert-dispatched.v1.schema.json',
+    'check-in-deadline-scheduled.v1.schema.json',
+    'help-request-triggered.v1.schema.json',
+  ]
+    .map((file) => [`ghosty-docs/asyncapi/schemas/${file}`, `src/infrastructure/events/schemas/${file}`])
+    .concat([['config/events/event-validator.ts', 'src/infrastructure/events/event-validator.ts']]),
+  // Só nos microserviços chamados pelo BFF e pela Function (X-Internal-Key e X-User-Id).
+  'nest-internal': ['internal-key.guard.ts', 'user-id.decorator.ts'].map((file) => [
+    `config/nest/internal/${file}`,
+    `src/api/platform/${file}`,
+  ]),
 };
 
 /** Quais grupos cada projeto recebe. */
 export const PROJECTS = {
-  'ghosty-bff': ['format', 'typescript', 'node'],
-  'ghosty-notes-service': ['format', 'typescript', 'node'],
-  'ghosty-safety-service': ['format', 'typescript', 'node'],
-  'ghosty-functions': ['format', 'typescript', 'node'],
+  'ghosty-bff': ['format', 'typescript', 'node', 'nest'],
+  'ghosty-notes-service': ['format', 'typescript', 'node', 'nest', 'nest-internal'],
+  'ghosty-safety-service': ['format', 'typescript', 'node', 'nest', 'nest-internal', 'events'],
+  'ghosty-functions': ['format', 'typescript', 'node', 'events'],
   'ghosty-web': ['format', 'typescript'],
   'ghosty-docs': ['format'],
 };

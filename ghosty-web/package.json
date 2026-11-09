@@ -1,0 +1,63 @@
+{
+  "name": "ghosty-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Microfrontend do Ghosty: shell, remote notes (fachada) e remote safety",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --names shell,notes,safety --prefix-colors auto \"npm:dev -w @ghosty/shell\" \"npm:dev -w @ghosty/notes\" \"npm:dev -w @ghosty/safety\"",
+    "dev:notes": "npm run dev -w @ghosty/notes",
+    "dev:safety": "npm run dev -w @ghosty/safety",
+    "generate": "npm run generate -w @ghosty/api-client",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "build": "npm run build -w @ghosty/notes && npm run build -w @ghosty/safety && npm run build -w @ghosty/shell",
+    "preview": "concurrently --names shell,notes,safety \"npm:preview -w @ghosty/shell\" \"npm:preview -w @ghosty/notes\" \"npm:preview -w @ghosty/safety\""
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^7.0.5",
+    "@module-federation/runtime": "^2.9.3",
+    "@tanstack/react-query": "^5.107.1",
+    "openapi-fetch": "^0.17.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.91.0",
+    "react-router": "^7.18.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@module-federation/vite": "^1.23.11",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "concurrently": "^10.0.7",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "jsdom": "^31.0.0",
+    "msw": "^2.15.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  }
+}
