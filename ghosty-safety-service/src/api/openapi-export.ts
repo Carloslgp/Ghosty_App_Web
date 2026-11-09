@@ -24,6 +24,7 @@ async function main(): Promise<void> {
         inviteTtlHours: 72,
         inviteBaseUrl: 'http://localhost:5173/c',
         telegramBotUsername: 'ghosty_dev_bot',
+        timezone: 'America/Sao_Paulo',
       },
     }),
     { logger: false },

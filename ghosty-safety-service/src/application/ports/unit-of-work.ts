@@ -3,6 +3,7 @@ import type { AlertSettingsRepository } from './alert-settings.repository.js';
 import type { CheckInRepository } from './check-in.repository.js';
 import type { ContactRepository } from './contact.repository.js';
 import type { HelpRequestRepository } from './help-request.repository.js';
+import type { IdempotencyKeyRepository } from './idempotency-key.repository.js';
 import type { OutboxRepository } from './outbox.repository.js';
 import type { ProcessedMessageRepository } from './processed-message.repository.js';
 import type { RefreshTokenRepository } from './refresh-token.repository.js';
@@ -19,6 +20,7 @@ export interface Repositories {
   helpRequests: HelpRequestRepository;
   outbox: OutboxRepository;
   processedMessages: ProcessedMessageRepository;
+  idempotencyKeys: IdempotencyKeyRepository;
 }
 
 /**

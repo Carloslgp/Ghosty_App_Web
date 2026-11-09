@@ -10,6 +10,8 @@ export interface SafetyConfig {
   inviteBaseUrl: string;
   /** Nome do bot sem `@`, para o link `t.me/<bot>?start=<token>`. */
   telegramBotUsername: string;
+  /** Fuso usado para formatar a hora na mensagem do aviso (ex.: `America/Sao_Paulo`). */
+  timezone: string;
 }
 
 export function inviteUrl(config: SafetyConfig, token: string): string {

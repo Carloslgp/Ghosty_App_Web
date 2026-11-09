@@ -1,6 +1,19 @@
 import type { Account } from '../../domain/accounts/account.entity.js';
 import type { AlertSettings } from '../../domain/alert-settings/alert-settings.entity.js';
+import type { CheckIn, CheckInStatus } from '../../domain/check-ins/check-in.entity.js';
 import type { Contact, ContactChannel, ContactStatus } from '../../domain/contacts/contact.entity.js';
+import type {
+  DeliveryChannel,
+  DeliveryOutcome,
+  DeliveryStep,
+} from '../../domain/help-requests/delivery-step.js';
+import type {
+  GeoLocation,
+  HelpRequest,
+  HelpRequestOrigin,
+  HelpRequestStatus,
+} from '../../domain/help-requests/help-request.entity.js';
+import type { Mode } from '../../domain/shared/domain-error.js';
 
 const iso = (date: Date | null) => date?.toISOString() ?? null;
 
@@ -79,4 +92,105 @@ export interface InvitationView {
   expiresAt: string;
   respondable: boolean;
   telegramUrl: string;
+}
+
+export interface CheckInView {
+  id: string;
+  destination: string;
+  dueAt: string;
+  toleranceMinutes: number;
+  /** `dueAt` + tolerância. */
+  deadlineAt: string;
+  status: CheckInStatus;
+  mode: Mode;
+  version: number;
+  createdAt: string;
+  confirmedAt: string | null;
+  expiredAt: string | null;
+  /** O pedido de ajuda criado quando o check-in venceu. */
+  helpRequestId: string | null;
+}
+
+export function toCheckInView(checkIn: CheckIn, helpRequestId: string | null): CheckInView {
+  const s = checkIn.toSnapshot();
+  return {
+    id: s.id,
+    destination: s.destination,
+    dueAt: s.dueAt.toISOString(),
+    toleranceMinutes: s.toleranceMinutes,
+    deadlineAt: checkIn.deadlineAt.toISOString(),
+    status: s.status,
+    mode: s.mode,
+    version: s.version,
+    createdAt: s.createdAt.toISOString(),
+    confirmedAt: iso(s.confirmedAt),
+    expiredAt: iso(s.expiredAt),
+    helpRequestId,
+  };
+}
+
+export interface HelpRequestSummaryView {
+  id: string;
+  origin: HelpRequestOrigin;
+  mode: Mode;
+  status: HelpRequestStatus;
+  createdAt: string;
+  dispatchedAt: string | null;
+}
+
+export function toHelpRequestSummaryView(request: HelpRequest): HelpRequestSummaryView {
+  const s = request.toSnapshot();
+  return {
+    id: s.id,
+    origin: s.origin,
+    mode: s.mode,
+    status: s.status,
+    createdAt: s.createdAt.toISOString(),
+    dispatchedAt: iso(s.dispatchedAt),
+  };
+}
+
+export interface DeliveryStepView {
+  id: string;
+  stepOrder: number;
+  contactId: string | null;
+  /** Apelido no momento da leitura (`null` se o contato foi removido). */
+  contactNickname: string | null;
+  channel: DeliveryChannel;
+  outcome: DeliveryOutcome;
+  message: string | null;
+  errorCode: string | null;
+  occurredAt: string;
+}
+
+export interface HelpRequestView extends HelpRequestSummaryView {
+  location: GeoLocation | null;
+  checkInId: string | null;
+  /** A linha do tempo do envio, vazia enquanto o status é `triggered`. */
+  steps: DeliveryStepView[];
+}
+
+export function toHelpRequestView(
+  request: HelpRequest,
+  steps: DeliveryStep[],
+  contacts: Contact[],
+): HelpRequestView {
+  const s = request.toSnapshot();
+  const nicknames = new Map(contacts.map((contact) => [contact.id, contact.nickname]));
+  return {
+    ...toHelpRequestSummaryView(request),
+    location: s.location,
+    checkInId: s.checkInId,
+    steps: steps.map((step) => ({
+      id: step.id,
+      stepOrder: step.stepOrder,
+      contactId: step.contactId,
+      contactNickname: step.contactId === null ? null : (nicknames.get(step.contactId) ?? null),
+      channel: step.channel,
+      outcome: step.outcome,
+      message: step.message,
+      errorCode: step.errorCode,
+      occurredAt: step.occurredAt.toISOString(),
+    })),
+  };
 }

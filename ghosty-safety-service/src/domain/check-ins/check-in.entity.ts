@@ -6,6 +6,7 @@ export type CheckInStatus = (typeof CHECK_IN_STATUSES)[number];
 export const CHECK_IN_MIN_MINUTES = 1;
 export const CHECK_IN_MAX_HOURS = 24;
 export const DESTINATION_MAX = 120;
+export const TOLERANCE_MAX_MINUTES = 60;
 
 export interface CheckInSnapshot {
   id: string;
@@ -32,6 +33,12 @@ function assertDue(dueAt: Date, now: Date): void {
   }
 }
 
+function assertTolerance(minutes: number): void {
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > TOLERANCE_MAX_MINUTES) {
+    throw DomainError.invalidField('toleranceMinutes', `entre 0 e ${TOLERANCE_MAX_MINUTES} minutos`);
+  }
+}
+
 /** Resultado de uma mensagem de prazo: só vence o check-in ativo com a mesma versão. */
 export type ExpireOutcome = 'expired' | 'ignored';
 
@@ -53,6 +60,7 @@ export class CheckIn {
       throw DomainError.invalidField('destination', `entre 1 e ${DESTINATION_MAX} caracteres`);
     }
     assertDue(params.dueAt, params.now);
+    assertTolerance(params.toleranceMinutes);
     return new CheckIn({
       id: params.id,
       accountId: params.accountId,
@@ -84,6 +92,14 @@ export class CheckIn {
     return this.state.version;
   }
 
+  get accountId(): string {
+    return this.state.accountId;
+  }
+
+  get mode(): Mode {
+    return this.state.mode;
+  }
+
   /** Prazo final: o horário combinado mais a tolerância. */
   get deadlineAt(): Date {
     return new Date(this.state.dueAt.getTime() + this.state.toleranceMinutes * 60_000);
@@ -95,10 +111,12 @@ export class CheckIn {
     }
   }
 
-  extend(dueAt: Date, now: Date): void {
+  /** Novo horário (e, se vier, nova tolerância). Sobe a versão: o prazo agendado antes deixa de valer. */
+  extend(dueAt: Date, now: Date, toleranceMinutes = this.state.toleranceMinutes): void {
     this.assertActive('estender');
     assertDue(dueAt, now);
-    this.state = { ...this.state, dueAt, version: this.state.version + 1 };
+    assertTolerance(toleranceMinutes);
+    this.state = { ...this.state, dueAt, toleranceMinutes, version: this.state.version + 1 };
   }
 
   confirm(now: Date): void {

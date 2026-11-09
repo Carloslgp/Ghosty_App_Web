@@ -10,6 +10,7 @@ export class TypeOrmOutboxRepository implements OutboxRepository {
   constructor(
     private readonly manager: EntityManager,
     private readonly schemas: Schemas,
+    private readonly check?: (message: OutboxMessage) => void,
   ) {}
 
   private get rows() {
@@ -17,6 +18,7 @@ export class TypeOrmOutboxRepository implements OutboxRepository {
   }
 
   async add(message: OutboxMessage): Promise<void> {
+    this.check?.(message);
     await this.rows.insert(message);
     this.added += 1;
   }
