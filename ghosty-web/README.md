@@ -2,7 +2,7 @@
 
 Microfrontend do Ghosty: um shell e dois remotes, unidos por Module Federation.
 
-> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
+> **Status:** monorepo (npm workspaces), `packages/ui`, `packages/api-client` (tipos gerados do contrato do BFF), shell (Entrar, Criar conta, Configurações, host dos remotes e desbloqueio pela busca), remote `notes` (a fachada completa) e remote `safety` (painel, rede de apoio e mensagem). Pedido de ajuda, Teste seguro, check-in e a página do convite chegam na próxima etapa.
 
 ## Sobre o Ghosty
 
@@ -60,20 +60,49 @@ A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquite
 
 ## Como rodar localmente
 
-> Em construção.
-
-Pré-requisito: Node.js 24 LTS (versão em `.nvmrc`).
-
-Comandos previstos:
+Pré-requisito: Node.js 24 LTS. O front chama só o BFF (na máquina local, direto, sem o API Management).
 
 ```bash
 npm ci
-npm run dev   # shell em :5173, notes em :5174, safety em :5175
+npm run dev          # shell (5173) + notes (5174) + safety (5175), em paralelo
 ```
+
+- Abra http://localhost:5173. Sem o BFF rodando, aponte para o mock: `cd ../ghosty-docs && npm run mock:bff` (porta 4010) e use `VITE_API_BASE_URL=http://localhost:4010` em `apps/shell/.env.local`.
+- Cada remote também roda sozinho contra o mock (`npm run dev:notes` e `npm run dev:safety`), com tokens de desenvolvimento.
+- `npm run build` gera os 3 apps (`apps/*/dist`); `npm run preview` serve o build.
+- `npm run generate` regera `packages/api-client/src/schema.d.ts` a partir de `ghosty-docs/contracts/bff.openapi.yaml`.
+
+| Variável (build do Vite) | Local | Para quê |
+|---|---|---|
+| `VITE_API_BASE_URL` | `http://localhost:3000` | BFF (na nuvem, a URL do APIM) |
+| `VITE_APIM_SUBSCRIPTION_KEY` | vazia | Chave pública do produto `web-app` do APIM |
+| `VITE_NOTES_REMOTE_URL` | `http://localhost:5174/remoteEntry.js` | Remote `notes` (o `safety` vem do BFF no desbloqueio) |
+
+### Como as peças se encaixam
+
+```text
+apps/shell     host do Module Federation, BrowserRouter, AuthProvider (dono da sessão) e as telas da conta
+apps/notes     remote "notes/App": lista, busca local, editor (texto e checklist), cores, etiquetas, lembrete
+apps/safety    remote "safety/App": MemoryRouter, onboarding, painel, rede de apoio, mensagem, saída rápida
+packages/ui            tokens (variáveis CSS) e componentes base, com alvos de toque de 44 px
+packages/api-client    cliente tipado do BFF (openapi-fetch) e o contrato shell ↔ remotes
+```
+
+- O JWT e o token da sessão segura ficam só em memória; o refresh token fica no `localStorage` (o "continuar conectado" das notas). Os remotes nunca veem os tokens: recebem um `ApiClient` pronto, que renova o JWT uma vez no 401 e aciona a saída rápida no 403 da área de segurança.
+- A busca filtra no navegador. No Enter, o shell testa `/^\d{6,8}$/`: se bater, chama `POST /safety/session`; com o código certo, registra o remote `safety` com a URL que o BFF devolve. A URL continua `/` e o título continua "Notas".
+- Saída rápida: botão "Voltar às notas" ou Esc duas vezes. Revoga a sessão no BFF, apaga o cache `[safety, ...]` e volta às notas.
+- O remote `safety` sai sem source maps e com arquivos nomeados só pelo hash.
 
 ## Testes
 
-> Em construção. Comando previsto: `npm test`.
+```bash
+npm test             # Vitest + Testing Library + MSW (jsdom), sem servidor de verdade
+npm run lint         # ESLint (com as regras do React) + Prettier
+npm run typecheck
+npm run build
+```
+
+Cobrem: entrar, criar conta, continuar conectado, código de bloqueio com a senha atual, excluir conta, desbloqueio (texto comum nunca chama o BFF; código errado não muda a tela) e saída rápida; a fachada (fixadas primeiro, busca local sem chamada ao servidor, Enter avisando o shell, editor com conflito de versão e item marcado); e, no remote `safety`, a prontidão com o aviso de cálculo simplificado, a reordenação da rede (`PUT /safety/contacts/order`), o convite e o debounce de 500 ms da prévia da mensagem.
 
 ## Na nuvem (Azure)
 

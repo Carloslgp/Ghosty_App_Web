@@ -1,0 +1,887 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ghosty-functions",
+    "version": "0.1.0",
+    "description": "Funções HTTP da Function App do Ghosty. As funções de fila (`dispatch-alert` e\n`check-in-deadline`) estão descritas no AsyncAPI (`asyncapi/asyncapi.yaml`).\n\n- `readiness` e `message-preview` exigem a function key, no cabeçalho `x-functions-key`\n  ou no parâmetro `code`. Sem a chave, o próprio host do Azure Functions responde 401, sem corpo.\n- `telegram-webhook` é chamado pelo Telegram, direto (sem passar pelo APIM). Exige a function key\n  em `?code=` **e** o cabeçalho `X-Telegram-Bot-Api-Secret-Token`.\n- `openapi.json` e `docs` são anônimos: só documentação.\n- As funções não acessam banco. Datas em ISO 8601 (UTC); a hora da mensagem é formatada\n  no fuso `America/Sao_Paulo`.\n"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:7071",
+      "description": "Máquina local (func start)"
+    },
+    {
+      "url": "http://localhost:4013",
+      "description": "Mock (Prism)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "readiness",
+      "description": "Prontidão da rede de apoio"
+    },
+    {
+      "name": "messages",
+      "description": "Prévia da mensagem de aviso"
+    },
+    {
+      "name": "telegram",
+      "description": "Webhook do bot do Telegram"
+    },
+    {
+      "name": "docs",
+      "description": "Documentação da API"
+    }
+  ],
+  "security": [
+    {
+      "functionKey": []
+    },
+    {
+      "functionKeyQuery": []
+    }
+  ],
+  "paths": {
+    "/api/readiness": {
+      "post": {
+        "tags": ["readiness"],
+        "operationId": "calculateReadiness",
+        "summary": "Calcula a prontidão",
+        "description": "Recebe os resumos do `notes-service` e do `safety-service` (montados pelo BFF) e devolve a\npontuação de 0 a 100, o nível, os itens com recomendação e uma prévia da mensagem.\n\n| Item (`id`) | Peso |\n|---|---:|\n| `network-confirmed`: pelo menos 1 contato confirmado | 30 |\n| `network-two-confirmed`: 2 ou mais contatos confirmados | 10 |\n| `message-reviewed`: mensagem revisada | 15 |\n| `location-permission`: localização permitida no navegador | 10 |\n| `recent-test`: Teste seguro nos últimos 30 dias | 20 |\n| `facade-usage`: 3 ou mais notas atualizadas em 14 dias | 10 |\n| `secret-code`: código de bloqueio definido | 5 |\n\nNíveis: 80 ou mais é `ready`, de 50 a 79 é `almost` e abaixo de 50 é `attention`.\nCom `notes: null` (notas fora do ar), o item `facade-usage` conta como não cumprido.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XCorrelationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadinessRequest"
+              },
+              "examples": {
+                "almostReady": {
+                  "summary": "Tudo pronto, menos a localização",
+                  "value": {
+                    "notes": {
+                      "updatedLast14Days": 5
+                    },
+                    "safety": {
+                      "displayName": "Maria",
+                      "totalContacts": 3,
+                      "confirmedContacts": 2,
+                      "firstConfirmedNickname": "Ana",
+                      "messageTemplate": "Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.",
+                      "messageReviewed": true,
+                      "includeLocation": true,
+                      "secretCodeSet": true,
+                      "lastTestAt": "2026-11-03T22:02:00Z"
+                    },
+                    "geoPermission": "prompt",
+                    "now": "2026-11-06T22:10:00Z",
+                    "timezone": "America/Sao_Paulo"
+                  }
+                },
+                "newAccount": {
+                  "summary": "Conta recém-criada",
+                  "value": {
+                    "notes": null,
+                    "safety": {
+                      "displayName": "Maria",
+                      "totalContacts": 0,
+                      "confirmedContacts": 0,
+                      "firstConfirmedNickname": null,
+                      "messageTemplate": "Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.",
+                      "messageReviewed": false,
+                      "includeLocation": true,
+                      "secretCodeSet": true,
+                      "lastTestAt": null
+                    },
+                    "geoPermission": "unknown"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pontuação, itens e prévia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResult"
+                },
+                "examples": {
+                  "almostReady": {
+                    "summary": "90 pontos",
+                    "value": {
+                      "score": 90,
+                      "level": "ready",
+                      "items": [
+                        {
+                          "id": "network-confirmed",
+                          "ok": true,
+                          "weight": 30,
+                          "text": "2 de 3 contatos confirmaram",
+                          "recommendation": null
+                        },
+                        {
+                          "id": "network-two-confirmed",
+                          "ok": true,
+                          "weight": 10,
+                          "text": "Você tem 2 contatos confirmados",
+                          "recommendation": null
+                        },
+                        {
+                          "id": "message-reviewed",
+                          "ok": true,
+                          "weight": 15,
+                          "text": "Mensagem revisada",
+                          "recommendation": null
+                        },
+                        {
+                          "id": "location-permission",
+                          "ok": false,
+                          "weight": 10,
+                          "text": "Localização ainda não permitida neste navegador",
+                          "recommendation": "Permita a localização para a sua rede saber onde você está."
+                        },
+                        {
+                          "id": "recent-test",
+                          "ok": true,
+                          "weight": 20,
+                          "text": "Último Teste seguro há 3 dias",
+                          "recommendation": null
+                        },
+                        {
+                          "id": "facade-usage",
+                          "ok": true,
+                          "weight": 10,
+                          "text": "5 notas atualizadas nos últimos 14 dias",
+                          "recommendation": null
+                        },
+                        {
+                          "id": "secret-code",
+                          "ok": true,
+                          "weight": 5,
+                          "text": "Código de bloqueio definido",
+                          "recommendation": null
+                        }
+                      ],
+                      "messagePreview": {
+                        "text": "Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: [link do mapa na hora do pedido]. Enviado às 19:10.",
+                        "characters": 150,
+                        "limit": 4096,
+                        "withinLimit": true,
+                        "mapUrl": null
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/MissingFunctionKey"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/message-preview": {
+      "post": {
+        "tags": ["messages"],
+        "operationId": "previewMessage",
+        "summary": "Monta a prévia da mensagem",
+        "description": "Preenche o modelo (`{apelido}`, `{nome}`, `{local}`, `{hora}`), gera o link do mapa a partir\nda localização e formata a hora no fuso informado. Conta os caracteres contra o limite de\n4.096 de uma mensagem do Telegram: acima dele, `withinLimit` vem `false` e o cliente não\ndeve permitir salvar o modelo.\n\nA mensagem é texto puro (sem formatação do Telegram), com o link do mapa por extenso.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XCorrelationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessagePreviewRequest"
+              },
+              "examples": {
+                "withLocation": {
+                  "summary": "Com localização",
+                  "value": {
+                    "template": "Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.",
+                    "displayName": "Maria",
+                    "contactNickname": "Ana",
+                    "location": {
+                      "lat": -23.5505,
+                      "lng": -46.6333,
+                      "accuracyMeters": 20
+                    },
+                    "at": "2026-11-06T22:10:00Z",
+                    "timezone": "America/Sao_Paulo"
+                  }
+                },
+                "withoutLocation": {
+                  "summary": "Sem localização",
+                  "value": {
+                    "template": "Oi, {apelido}. Aqui é {nome}. Posso estar em uma situação de risco e preciso de ajuda. {local} Enviado às {hora}.",
+                    "displayName": "Maria",
+                    "contactNickname": "Ana",
+                    "at": "2026-11-06T22:10:00Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A mensagem montada e a contagem de caracteres",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagePreview"
+                },
+                "examples": {
+                  "withLocation": {
+                    "value": {
+                      "text": "Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Minha localização: https://www.google.com/maps?q=-23.5505,-46.6333 (precisão de 20 m). Enviado às 19:10.",
+                      "characters": 184,
+                      "limit": 4096,
+                      "withinLimit": true,
+                      "mapUrl": "https://www.google.com/maps?q=-23.5505,-46.6333"
+                    }
+                  },
+                  "withoutLocation": {
+                    "value": {
+                      "text": "Oi, Ana. Aqui é Maria. Posso estar em uma situação de risco e preciso de ajuda. Não foi possível obter a localização. Enviado às 19:10.",
+                      "characters": 135,
+                      "limit": 4096,
+                      "withinLimit": true,
+                      "mapUrl": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "401": {
+            "$ref": "#/components/responses/MissingFunctionKey"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/telegram/webhook": {
+      "post": {
+        "tags": ["telegram"],
+        "operationId": "handleTelegramUpdate",
+        "summary": "Recebe as mensagens do bot",
+        "description": "O Telegram chama esta função a cada mensagem enviada ao bot (`setWebhook` com\n`secret_token`). O corpo é o objeto `Update` da Bot API, em snake_case, como o Telegram envia.\n\n- `/start <token>`: vincula o contato ao convite (`POST /internal/contacts/telegram-link` no\n  `safety-service`) e responde no chat \"Pronto, você faz parte da rede de apoio de <Nome>\".\n- `/parar`: tira o contato da rede (`POST /internal/contacts/telegram-leave`).\n- Qualquer outro texto, ou token inválido, expirado ou já usado: ignorado em silêncio.\n\nResponde 200 sempre que o segredo confere, mesmo quando ignora a mensagem, para o Telegram\nnão reenviar. Nunca registra em log o texto, o `chat.id` nem o token.\n",
+        "security": [
+          {
+            "functionKeyQuery": [],
+            "telegramSecret": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramUpdate"
+              },
+              "examples": {
+                "start": {
+                  "summary": "/start com o token do convite",
+                  "value": {
+                    "update_id": 812345678,
+                    "message": {
+                      "message_id": 41,
+                      "date": 1793916600,
+                      "text": "/start QZf1G-GRU6ddOI-CFHmAics50X53d1eLCEJyvzNUMdw",
+                      "chat": {
+                        "id": 5123456789,
+                        "type": "private"
+                      },
+                      "from": {
+                        "id": 5123456789,
+                        "is_bot": false,
+                        "first_name": "Ana"
+                      }
+                    }
+                  }
+                },
+                "stop": {
+                  "summary": "/parar",
+                  "value": {
+                    "update_id": 812345679,
+                    "message": {
+                      "message_id": 57,
+                      "date": 1793920200,
+                      "text": "/parar",
+                      "chat": {
+                        "id": 5123456789,
+                        "type": "private"
+                      },
+                      "from": {
+                        "id": 5123456789,
+                        "is_bot": false,
+                        "first_name": "Ana"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mensagem tratada ou ignorada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramWebhookResult"
+                },
+                "examples": {
+                  "linked": {
+                    "value": {
+                      "result": "linked"
+                    }
+                  },
+                  "left": {
+                    "value": {
+                      "result": "left"
+                    }
+                  },
+                  "ignored": {
+                    "value": {
+                      "result": "ignored"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Function key ausente (resposta do host, sem corpo) ou segredo do webhook diferente"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["docs"],
+        "operationId": "getOpenApiDocument",
+        "summary": "Este contrato em JSON",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Documento OpenAPI das funções HTTP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "examples": {
+                  "document": {
+                    "value": {
+                      "openapi": "3.0.3",
+                      "info": {
+                        "title": "ghosty-functions",
+                        "version": "0.1.0"
+                      },
+                      "paths": {}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Documento indisponível"
+          }
+        }
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "tags": ["docs"],
+        "operationId": "getSwaggerUi",
+        "summary": "Interface Swagger UI",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Página HTML do Swagger UI, apontando para `/api/openapi.json`",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                },
+                "examples": {
+                  "page": {
+                    "value": "<!doctype html><html lang=\"pt-BR\"><head><title>ghosty-functions</title></head><body><div id=\"swagger-ui\"></div></body></html>"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Página indisponível"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "functionKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-functions-key",
+        "description": "Function key da Function App"
+      },
+      "functionKeyQuery": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "code",
+        "description": "Function key na URL (usada pelo webhook do Telegram)"
+      },
+      "telegramSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Telegram-Bot-Api-Secret-Token",
+        "description": "O `secret_token` informado no `setWebhook` (`TELEGRAM_WEBHOOK_SECRET`)"
+      }
+    },
+    "parameters": {
+      "XCorrelationId": {
+        "name": "X-Correlation-Id",
+        "in": "header",
+        "required": false,
+        "description": "Identificador da operação de ponta a ponta",
+        "schema": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "example": "01a1b2e9-6290-7765-80a9-717fa4f6dfff"
+      }
+    },
+    "schemas": {
+      "GeoPermission": {
+        "type": "string",
+        "description": "Situação da permissão de localização no navegador, informada pelo front",
+        "enum": ["granted", "denied", "prompt", "unknown"]
+      },
+      "Location": {
+        "type": "object",
+        "required": ["lat", "lng"],
+        "properties": {
+          "lat": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "lng": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "accuracyMeters": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          }
+        }
+      },
+      "MessageTemplate": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "description": "Modelo com os marcadores `{apelido}`, `{nome}`, `{local}` e `{hora}`"
+      },
+      "ReadinessRequest": {
+        "type": "object",
+        "required": ["notes", "safety", "geoPermission"],
+        "properties": {
+          "notes": {
+            "type": "object",
+            "nullable": true,
+            "description": "`null` quando o `notes-service` não respondeu",
+            "required": ["updatedLast14Days"],
+            "properties": {
+              "updatedLast14Days": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "safety": {
+            "type": "object",
+            "required": [
+              "displayName",
+              "totalContacts",
+              "confirmedContacts",
+              "firstConfirmedNickname",
+              "messageTemplate",
+              "messageReviewed",
+              "includeLocation",
+              "secretCodeSet",
+              "lastTestAt"
+            ],
+            "properties": {
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "totalContacts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "confirmedContacts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "firstConfirmedNickname": {
+                "type": "string",
+                "maxLength": 40,
+                "nullable": true,
+                "description": "Apelido usado na prévia. Sem contato confirmado, a prévia usa \"contato\"."
+              },
+              "messageTemplate": {
+                "$ref": "#/components/schemas/MessageTemplate"
+              },
+              "messageReviewed": {
+                "type": "boolean"
+              },
+              "includeLocation": {
+                "type": "boolean"
+              },
+              "secretCodeSet": {
+                "type": "boolean"
+              },
+              "lastTestAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true,
+                "description": "Data do último Teste seguro concluído"
+              }
+            }
+          },
+          "geoPermission": {
+            "$ref": "#/components/schemas/GeoPermission"
+          },
+          "now": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Momento de referência. Padrão, a hora do servidor (útil nos testes)."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "America/Sao_Paulo",
+            "maxLength": 64
+          }
+        }
+      },
+      "ReadinessItem": {
+        "type": "object",
+        "required": ["id", "ok", "weight", "text", "recommendation"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "network-confirmed",
+              "network-two-confirmed",
+              "message-reviewed",
+              "location-permission",
+              "recent-test",
+              "facade-usage",
+              "secret-code"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "text": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "string",
+            "nullable": true,
+            "description": "O que fazer para cumprir o item. `null` quando `ok` é `true`."
+          }
+        }
+      },
+      "ReadinessResult": {
+        "type": "object",
+        "required": ["score", "level", "items", "messagePreview"],
+        "properties": {
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "level": {
+            "type": "string",
+            "enum": ["ready", "almost", "attention"]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReadinessItem"
+            }
+          },
+          "messagePreview": {
+            "$ref": "#/components/schemas/MessagePreview"
+          }
+        }
+      },
+      "MessagePreviewRequest": {
+        "type": "object",
+        "required": ["template", "displayName", "contactNickname"],
+        "properties": {
+          "template": {
+            "$ref": "#/components/schemas/MessageTemplate"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "contactNickname": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "location": {
+            "$ref": "#/components/schemas/Location"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Hora usada em `{hora}`. Padrão, a hora do servidor."
+          },
+          "timezone": {
+            "type": "string",
+            "default": "America/Sao_Paulo",
+            "maxLength": 64
+          }
+        }
+      },
+      "MessagePreview": {
+        "type": "object",
+        "required": ["text", "characters", "limit", "withinLimit", "mapUrl"],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "characters": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "enum": [4096]
+          },
+          "withinLimit": {
+            "type": "boolean"
+          },
+          "mapUrl": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true
+          }
+        }
+      },
+      "TelegramUpdate": {
+        "type": "object",
+        "description": "Subconjunto do `Update` da Bot API. Campos extras são aceitos e ignorados.",
+        "required": ["update_id"],
+        "properties": {
+          "update_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "message": {
+            "type": "object",
+            "required": ["message_id", "date", "chat"],
+            "properties": {
+              "message_id": {
+                "type": "integer"
+              },
+              "date": {
+                "type": "integer",
+                "description": "Unix time"
+              },
+              "text": {
+                "type": "string"
+              },
+              "chat": {
+                "type": "object",
+                "required": ["id", "type"],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                }
+              },
+              "from": {
+                "type": "object",
+                "required": ["id", "is_bot", "first_name"],
+                "properties": {
+                  "id": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "is_bot": {
+                    "type": "boolean"
+                  },
+                  "first_name": {
+                    "type": "string"
+                  },
+                  "username": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "TelegramWebhookResult": {
+        "type": "object",
+        "required": ["result"],
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": ["linked", "left", "ignored"]
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "description": "Erro no formato RFC 9457, com o `code` estável para o cliente decidir o que fazer",
+        "required": ["type", "title", "status", "code"],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "code": {
+            "type": "string",
+            "enum": ["VALIDATION_FAILED", "UNAUTHENTICATED", "INTERNAL_ERROR"]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["field", "message"],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ValidationFailed": {
+        "description": "Corpo inválido",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            },
+            "examples": {
+              "validation": {
+                "value": {
+                  "type": "/errors/validation-failed",
+                  "title": "Dados inválidos",
+                  "status": 400,
+                  "code": "VALIDATION_FAILED",
+                  "detail": "O campo contactNickname é obrigatório.",
+                  "instance": "/api/message-preview",
+                  "correlationId": "01a1b2e9-6290-7765-80a9-717fa4f6dfff",
+                  "errors": [
+                    {
+                      "field": "contactNickname",
+                      "message": "obrigatório"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "MissingFunctionKey": {
+        "description": "Function key ausente ou inválida. Resposta do host do Azure Functions, sem corpo."
+      },
+      "InternalError": {
+        "description": "Erro inesperado, sem detalhes",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            },
+            "examples": {
+              "internal": {
+                "value": {
+                  "type": "/errors/internal-error",
+                  "title": "Erro interno",
+                  "status": 500,
+                  "code": "INTERNAL_ERROR",
+                  "correlationId": "01a1b2e9-6290-7765-80a9-717fa4f6dfff"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AlertDispatched v1",
+  "description": "Resultado do envio de um pedido de ajuda, com um passo por contato, na ordem de aviso. Publicado pela Function dispatch-alert na fila alert-dispatches e consumido pelo safety-service (RecordAlertDispatch), que grava a linha do tempo de forma idempotente.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "id", "type", "source", "time", "correlationId", "data"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "$ref": "#/definitions/uuid",
+      "description": "Id único do evento (UUID v7). Os consumidores usam para descartar repetições."
+    },
+    "type": { "const": "ghosty.functions.alert.dispatched.v1" },
+    "source": { "const": "ghosty-functions" },
+    "time": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["helpRequestId", "accountId", "mode", "deliveryMode", "status", "dispatchedAt", "steps"],
+      "properties": {
+        "helpRequestId": { "$ref": "#/definitions/uuid" },
+        "accountId": { "$ref": "#/definitions/uuid" },
+        "mode": { "type": "string", "enum": ["real", "test"] },
+        "deliveryMode": {
+          "type": "string",
+          "enum": ["simulated", "telegram"],
+          "description": "Valor de DELIVERY_MODE na Function. Com simulated, nada sai pelo Telegram (would_send)."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["dispatched", "failed"],
+          "description": "failed quando nenhum passo alcançou alguém (todos falharam, ou não havia contato confirmado)"
+        },
+        "dispatchedAt": { "type": "string", "format": "date-time" },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/step" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepOrder", "contactId", "channel", "outcome", "message", "errorCode", "occurredAt"],
+      "properties": {
+        "stepOrder": { "type": "integer", "minimum": 1 },
+        "contactId": {
+          "description": "null só no passo no_contacts",
+          "oneOf": [{ "$ref": "#/definitions/uuid" }, { "type": "null" }]
+        },
+        "channel": { "type": "string", "enum": ["telegram", "web", "none"] },
+        "outcome": {
+          "type": "string",
+          "enum": ["sent", "published_web", "would_send", "failed", "skipped_unconfirmed", "no_contacts"],
+          "description": "sent: entregue ao Telegram. published_web: publicado na página do contato. would_send: modo test ou DELIVERY_MODE=simulated. failed: erro definitivo (403 ou 400 do Telegram). skipped_unconfirmed: contato não confirmado. no_contacts: nenhum contato confirmado."
+        },
+        "message": {
+          "description": "Texto montado para o contato. null nos passos skipped_unconfirmed e no_contacts.",
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 4096 }, { "type": "null" }]
+        },
+        "errorCode": {
+          "description": "Código do erro quando outcome = failed",
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "null" }]
+        },
+        "occurredAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

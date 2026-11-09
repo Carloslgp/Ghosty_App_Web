@@ -1,0 +1,15 @@
+# Fora do pacote publicado na Azure: código-fonte, testes e configuração local.
+*.ts
+!dist/**
+src
+test
+scripts
+coverage
+.vscode
+local.settings.json
+local.settings.example.json
+tsconfig*.json
+vitest*.ts
+eslint*.mjs
+.prettier*
+*.md

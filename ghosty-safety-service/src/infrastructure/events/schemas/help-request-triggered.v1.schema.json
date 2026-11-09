@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HelpRequestTriggered v1",
+  "description": "Pedido de ajuda disparado pelo botão ou por um check-in vencido. Publicado pelo safety-service (outbox) na fila help-requests e consumido pela Function dispatch-alert. Não leva nenhum destino de entrega: a Function busca os chats do Telegram no safety-service na hora de enviar.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["specversion", "id", "type", "source", "time", "correlationId", "data"],
+  "properties": {
+    "specversion": { "const": "1.0" },
+    "id": {
+      "$ref": "#/definitions/uuid",
+      "description": "Id único do evento (UUID v7). Os consumidores usam para descartar repetições."
+    },
+    "type": { "const": "ghosty.safety.help-request.triggered.v1" },
+    "source": { "const": "safety-service" },
+    "time": { "type": "string", "format": "date-time" },
+    "correlationId": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "helpRequestId",
+        "accountId",
+        "mode",
+        "origin",
+        "checkInId",
+        "displayName",
+        "messageTemplate",
+        "location",
+        "contacts",
+        "timezone",
+        "triggeredAt"
+      ],
+      "properties": {
+        "helpRequestId": { "$ref": "#/definitions/uuid" },
+        "accountId": { "$ref": "#/definitions/uuid" },
+        "mode": {
+          "type": "string",
+          "enum": ["real", "test"],
+          "description": "No modo test nada é enviado: todo passo termina em would_send."
+        },
+        "origin": { "type": "string", "enum": ["button", "check_in"] },
+        "checkInId": {
+          "description": "Check-in que venceu, quando origin = check_in",
+          "oneOf": [{ "$ref": "#/definitions/uuid" }, { "type": "null" }]
+        },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "messageTemplate": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "location": {
+          "description": "Só vem quando a pessoa permitiu a localização",
+          "oneOf": [{ "$ref": "#/definitions/location" }, { "type": "null" }]
+        },
+        "contacts": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Contatos da rede de apoio, em qualquer status. Só os confirmados recebem aviso.",
+          "items": { "$ref": "#/definitions/contact" }
+        },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 64, "examples": ["America/Sao_Paulo"] },
+        "triggeredAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lat", "lng", "accuracyMeters"],
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+        "accuracyMeters": { "oneOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contactId", "nickname", "position", "status", "channel"],
+      "properties": {
+        "contactId": { "$ref": "#/definitions/uuid" },
+        "nickname": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "position": { "type": "integer", "minimum": 1 },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "declined"] },
+        "channel": {
+          "description": "Canal escolhido no aceite. null enquanto o contato não aceitou.",
+          "oneOf": [{ "type": "string", "enum": ["telegram", "web"] }, { "type": "null" }]
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 App web de segurança pessoal discreto. Por fora, é um app de notas comum que funciona de verdade. Por dentro, tem uma área de segurança para avisar a rede de apoio da pessoa.
 
-> **Status:** fundação pronta: configuração compartilhada, CI por projeto, Dockerfiles, publicação das imagens e contratos v0 com mocks. A implementação dos serviços começa na Sprint 1.
+> **Status:** os 5 projetos de código estão implementados e testados para a primeira etapa: CRUD de notas e da rede de apoio de ponta a ponta na máquina local (front → BFF → notes-service e safety-service), autenticação com JWT RS256, sessão segura, mensageria com outbox e as funções de prontidão, prévia e envio dos avisos. Pedido de ajuda, Teste seguro, check-in, `/aggregated-data` real e o webhook do Telegram chegam na próxima etapa.
 
 Os avisos à rede de apoio saem pelo **Telegram** (bot) ou por uma **página web** aberta pelo contato, sem telefone, SMS nem WhatsApp. O ensaio (Teste seguro) mostra tudo o que aconteceria sem enviar nada. O Ghosty **não aciona** polícia nem serviços de emergência e não os substitui: 190 (Polícia Militar), 180 (Central de Atendimento à Mulher) e 192 (SAMU).
 

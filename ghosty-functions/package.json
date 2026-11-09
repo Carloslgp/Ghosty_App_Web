@@ -1,0 +1,47 @@
+{
+  "name": "ghosty-functions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Azure Functions do Ghosty: prontidão, prévia da mensagem e eventos",
+  "type": "module",
+  "main": "dist/functions/*.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "prestart": "npm run build",
+    "start": "func start",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:arch": "vitest run test/architecture",
+    "test:cov": "vitest run --coverage",
+    "build": "tsc -p tsconfig.build.json",
+    "openapi:sync": "node scripts/openapi-sync.mjs"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.17.0",
+    "@azure/storage-queue": "^12.32.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "uuid": "^14.0.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.1.0",
+    "archunit": "^2.5.4",
+    "azurite": "^3.37.0",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0",
+    "yaml": "^2.9.1"
+  }
+}

@@ -2,7 +2,7 @@
 
 Microserviço do domínio **Conta e Rede de apoio** do Ghosty, com Azure SQL Database.
 
-> **Status:** contrato v0 e configuração compartilhada prontos. O código começa na Sprint 1.
+> **Status:** contas, código secreto, refresh tokens, rede de apoio, convites, vínculo com o Telegram, mensagem, resumo e mensageria (outbox e consumidor) prontos e testados. Check-ins e pedidos de ajuda (rotas) chegam na próxima etapa; o domínio e as tabelas deles já existem.
 
 ## Sobre o Ghosty
 
@@ -49,8 +49,9 @@ Dados sensíveis ficam protegidos: senhas e códigos com hash Argon2id, e contat
 src/
 ├── domain/          entidades, value objects e máquinas de estado
 ├── application/     casos de uso organizados por feature (features/<feature>/<caso-de-uso>/)
-├── infrastructure/  persistência (TypeORM), filas, criptografia e configuração
-└── api/             controllers, DTOs, guards e Swagger (composição)
+├── infrastructure/  persistência (TypeORM com EntitySchema, SQLite ou SQL Server), filas, criptografia e configuração
+└── api/             controllers, DTOs, guard da chave interna, Swagger e composição (useFactory)
+    └── platform/    Problem Details, logs, /health e Swagger (cópia de config/nest, não editar)
 ```
 
 As regras de dependência entre as camadas são verificadas por testes de arquitetura.
@@ -75,21 +76,49 @@ A configuração de TypeScript, ESLint, Prettier, Vitest e das regras de arquite
 
 ## Como rodar localmente
 
-> Em construção.
-
-Pré-requisitos: Node.js 24 LTS (versão em `.nvmrc`) e Azurite (`npm i -g azurite`).
-
-Comandos previstos:
+Pré-requisito: Node.js 24 LTS (versão em `.nvmrc`). Não precisa de Docker nem da Azure: na máquina local o banco é um SQLite em arquivo e as filas ficam no Azurite.
 
 ```bash
 npm ci
-cp .env.example .env    # DB_PROVIDER=sqlite para rodar sem SQL Server
+cp .env.example .env    # já funciona na máquina local (chave de cifra só de desenvolvimento)
+npx azurite-queue --inMemoryPersistence --skipApiVersionCheck   # outro terminal (ou: azurite, se instalado)
 npm run start:dev       # porta 3002 · Swagger em http://localhost:3002/docs
 ```
 
+- O esquema do SQLite (`./data/safety.sqlite`) é criado na subida. No Azure SQL (`DB_PROVIDER=mssql`), as migrações de `src/infrastructure/persistence/migrations/mssql` rodam na subida.
+- Sem o Azurite, use `MESSAGING_ENABLED=false`: os eventos ficam guardados no outbox e saem quando as filas voltarem.
+- Chaves de verdade (nuvem): `openssl rand -base64 32` para `DATA_ENCRYPTION_KEY` e `openssl rand -hex 32` para `INTERNAL_API_KEY`. A chave de desenvolvimento do `.env.example` é recusada com `NODE_ENV=production`.
+
+| Variável | Padrão local | Para quê |
+|---|---|---|
+| `PORT` | `3002` | Porta HTTP |
+| `DB_PROVIDER` · `SQLITE_PATH` | `sqlite` · `./data/safety.sqlite` | Banco local |
+| `MSSQL_HOST` · `MSSQL_PORT` · `MSSQL_DATABASE` · `MSSQL_USER` · `MSSQL_PASSWORD` | vazias | Azure SQL (`DB_PROVIDER=mssql`) |
+| `DB_POOL_MIN` · `DB_POOL_IDLE_MS` | `0` · `30000` | Pool que deixa o banco serverless pausar |
+| `INTERNAL_API_KEY` | `dev-internal-key` | Chave exigida no `X-Internal-Key` |
+| `DATA_ENCRYPTION_KEY` | chave de desenvolvimento | AES-256-GCM dos campos sensíveis (32 bytes em Base64) |
+| `MESSAGING_ENABLED` | `true` | Liga o despachante do outbox e o consumidor da fila |
+| `QUEUE_CONNECTION_STRING` | `UseDevelopmentStorage=true` | Azurite (ou a Storage da Azure) |
+| `QUEUE_HELP_REQUESTS` · `QUEUE_CHECKIN_DEADLINES` · `QUEUE_ALERT_DISPATCHES` | `help-requests` · `check-in-deadlines` · `alert-dispatches` | Nomes das filas |
+| `CODE_MAX_ATTEMPTS` · `CODE_LOCK_MINUTES` | `5` · `15` | Bloqueio do código secreto |
+| `INVITE_BASE_URL` · `INVITE_TTL_HOURS` | `http://localhost:5173/c` · `72` | Link e validade do convite |
+| `TELEGRAM_BOT_USERNAME` | `ghosty_dev_bot` | Só para montar o link `t.me/<bot>?start=<token>` |
+| `LOG_LEVEL` | `info` | Nível do log (JSON, com os campos sensíveis redigidos) |
+
 ## Testes
 
-> Em construção. Comandos previstos: `npm test` (unidade, arquitetura e integração).
+```bash
+npm test             # unidade, arquitetura e integração (SQLite em memória e Azurite)
+npm run test:cov     # cobertura de domain + application (mínimo de 80%)
+npm run lint
+npm run typecheck
+npm run openapi:export   # grava o OpenAPI gerado pelo código em dist/openapi.json
+```
+
+- **Domínio:** toda transição proibida das máquinas de estado (contato, check-in, pedido de ajuda) gera erro de domínio; bloqueio do código depois de 5 erros.
+- **Casos de uso:** rodam contra o SQLite em memória (o mesmo adaptador da máquina local), com a cifra real e um hasher rápido.
+- **Integração:** HTTP (Supertest) com Problem Details, a mesma resposta para código errado e conta bloqueada, convites (72 horas, uma resposta só), vínculo e saída do Telegram e exclusão em cascata. A mensageria sobe o Azurite em memória (devDependency, sem Docker): o outbox publica em Base64, falha deixa o evento pendente, o consumidor grava a linha do tempo uma vez só e mensagens fora do formato vão para a fila `-poison`.
+- **Migração:** confere que a migração do SQL Server tem toda tabela, coluna, índice e restrição dos `EntitySchema`.
 
 ## Docker
 
