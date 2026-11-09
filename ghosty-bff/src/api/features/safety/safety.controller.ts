@@ -20,22 +20,26 @@ import {
   ApiOperation,
   ApiParam,
   ApiProperty,
+  ApiPropertyOptional,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
-import { Matches } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsNumber, IsOptional, IsString, Length, Matches, Max, Min, ValidateNested } from 'class-validator';
 import type { Response } from 'express';
 import { LockSafetyHandler } from '../../../application/features/safety-session/lock-safety/lock-safety.handler.js';
 import {
   UnlockSafetyHandler,
   type SafetySessionView,
 } from '../../../application/features/safety-session/unlock-safety/unlock-safety.handler.js';
+import { PreviewMessageHandler } from '../../../application/features/message-preview/preview-message.handler.js';
 import { SafetyProxyHandler } from '../../../application/features/safety/safety-proxy.handler.js';
-import type { Json, UpstreamResponse } from '../../../application/ports/safety-service.client.js';
+import type { MessagePreviewResult } from '../../../application/ports/functions.client.js';
+import type { Json } from '../../../application/ports/safety-service.client.js';
 import type { RequestMeta } from '../../../application/ports/upstream-error.js';
 import { ApiProblems } from '../../platform/openapi.js';
-import { ProblemException } from '../../platform/problem-details.js';
 import { CurrentAccount, Meta, SafetyArea } from '../../shared/guards.js';
+import { reply, uuidParam } from '../../shared/proxy.js';
 
 export class UnlockSafetyRequest {
   @ApiProperty({ pattern: '^[0-9]{6,8}$' })
@@ -54,17 +58,65 @@ export class SafetySessionResponse {
   remoteUrl!: string;
 }
 
-function uuid(value: string): string {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
-    throw new ProblemException('NOT_FOUND', 'Não encontrado.');
-  }
-  return value.toLowerCase();
+export class LocationDto {
+  @ApiProperty({ minimum: -90, maximum: 90 })
+  @IsNumber({}, { message: 'precisa ser um número' })
+  @Min(-90)
+  @Max(90)
+  lat!: number;
+
+  @ApiProperty({ minimum: -180, maximum: 180 })
+  @IsNumber({}, { message: 'precisa ser um número' })
+  @Min(-180)
+  @Max(180)
+  lng!: number;
+
+  @ApiPropertyOptional({ type: Number, minimum: 0, nullable: true })
+  @IsOptional()
+  @IsNumber({}, { message: 'precisa ser um número' })
+  @Min(0)
+  accuracyMeters?: number | null;
 }
 
-function reply(res: Response, upstream: UpstreamResponse): unknown {
-  res.status(upstream.status);
-  if (upstream.location) res.setHeader('Location', upstream.location);
-  return upstream.body;
+export class MessagePreviewRequest {
+  @ApiPropertyOptional({ minLength: 1, maxLength: 4096, description: 'Sem este campo, usa o modelo salvo' })
+  @IsOptional()
+  @IsString()
+  @Length(1, 4096, { message: 'entre 1 e 4096 caracteres' })
+  template?: string;
+
+  @ApiPropertyOptional({
+    minLength: 1,
+    maxLength: 40,
+    description: 'Sem este campo, usa o primeiro contato confirmado',
+  })
+  @IsOptional()
+  @IsString()
+  @Length(1, 40, { message: 'entre 1 e 40 caracteres' })
+  contactNickname?: string;
+
+  @ApiPropertyOptional({ type: LocationDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocationDto)
+  location?: LocationDto | null;
+}
+
+export class MessagePreviewResponse {
+  @ApiProperty()
+  text!: string;
+
+  @ApiProperty({ minimum: 0 })
+  characters!: number;
+
+  @ApiProperty({ enum: [4096] })
+  limit!: number;
+
+  @ApiProperty()
+  withinLimit!: boolean;
+
+  @ApiProperty({ type: String, format: 'uri', nullable: true })
+  mapUrl!: string | null;
 }
 
 /** Desbloqueio e bloqueio da área de segurança. */
@@ -132,7 +184,10 @@ export class SafetySessionController {
 @SafetyArea()
 @Controller('safety')
 export class SafetyController {
-  constructor(@Inject(SafetyProxyHandler) private readonly safety: SafetyProxyHandler) {}
+  constructor(
+    @Inject(SafetyProxyHandler) private readonly safety: SafetyProxyHandler,
+    @Inject(PreviewMessageHandler) private readonly preview: PreviewMessageHandler,
+  ) {}
 
   private async forward(
     res: Response,
@@ -216,7 +271,7 @@ export class SafetyController {
     @Meta() m: RequestMeta,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.forward(res, a, 'GET', `/contacts/${uuid(id)}`, undefined, m);
+    return this.forward(res, a, 'GET', `/contacts/${uuidParam(id)}`, undefined, m);
   }
 
   @Put('contacts/:contactId')
@@ -239,7 +294,7 @@ export class SafetyController {
     @Meta() m: RequestMeta,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.forward(res, a, 'PUT', `/contacts/${uuid(id)}`, body, m);
+    return this.forward(res, a, 'PUT', `/contacts/${uuidParam(id)}`, body, m);
   }
 
   @Delete('contacts/:contactId')
@@ -262,7 +317,7 @@ export class SafetyController {
     @Meta() m: RequestMeta,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.forward(res, a, 'DELETE', `/contacts/${uuid(id)}`, undefined, m);
+    return this.forward(res, a, 'DELETE', `/contacts/${uuidParam(id)}`, undefined, m);
   }
 
   @Post('contacts/:contactId/invitation')
@@ -285,7 +340,7 @@ export class SafetyController {
     @Meta() m: RequestMeta,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.forward(res, a, 'POST', `/contacts/${uuid(id)}/invitation`, undefined, m);
+    return this.forward(res, a, 'POST', `/contacts/${uuidParam(id)}/invitation`, undefined, m);
   }
 
   @Get('alert-settings')
@@ -321,5 +376,32 @@ export class SafetyController {
     @Res({ passthrough: true }) res: Response,
   ) {
     return this.forward(res, a, 'PUT', '/alert-settings', body, m);
+  }
+
+  @Post('message-preview')
+  @HttpCode(200)
+  @ApiOperation({
+    operationId: 'previewMessage',
+    summary: 'Prévia da mensagem',
+    description:
+      'Encaminhada à Function. O BFF completa o nome da conta. Sem `template`, usa o modelo salvo; sem ' +
+      '`contactNickname`, usa o primeiro contato confirmado (ou "contato"). O editor bloqueia o salvar ' +
+      'quando `withinLimit` é `false`.',
+  })
+  @ApiOkResponse({ type: MessagePreviewResponse })
+  @ApiProblems(
+    'VALIDATION_FAILED',
+    'UNAUTHENTICATED',
+    'FORBIDDEN',
+    'RATE_LIMITED',
+    'INTERNAL_ERROR',
+    'UPSTREAM_UNAVAILABLE',
+  )
+  previewMessage(
+    @CurrentAccount() a: string,
+    @Body() body: MessagePreviewRequest,
+    @Meta() m: RequestMeta,
+  ): Promise<MessagePreviewResult> {
+    return this.preview.execute(a, body, m);
   }
 }

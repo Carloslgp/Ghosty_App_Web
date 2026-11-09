@@ -2,7 +2,8 @@ import type { Json, SafetyServiceClient, UpstreamResponse } from '../../ports/sa
 import type { RequestMeta } from '../../ports/upstream-error.js';
 
 /**
- * Rotas `/safety/...` que só repassam ao safety-service (rede de apoio, convite e mensagem). A sessão
+ * Rotas `/safety/...` que só repassam ao safety-service (rede de apoio, convite, mensagem, check-ins e
+ * pedidos de ajuda). A sessão
  * segura já foi conferida pelo guard. O `Location` do serviço ganha o prefixo `/safety`.
  */
 export class SafetyProxyHandler {
@@ -14,8 +15,9 @@ export class SafetyProxyHandler {
     path: string,
     body: Json | undefined,
     meta: RequestMeta,
+    headers?: Record<string, string>,
   ): Promise<UpstreamResponse> {
-    const response = await this.safety.forUser(accountId, method, path, body, meta);
+    const response = await this.safety.forUser(accountId, method, path, body, meta, headers);
     return response.location ? { ...response, location: `/safety${response.location}` } : response;
   }
 }

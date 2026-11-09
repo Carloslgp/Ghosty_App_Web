@@ -24,11 +24,14 @@ export function appOptionsFrom(env: Env): AppOptions {
       notesUrl: env.NOTES_SERVICE_URL,
       safetyUrl: env.SAFETY_SERVICE_URL,
       internalApiKey: env.INTERNAL_API_KEY,
+      functionsUrl: env.FUNCTIONS_BASE_URL,
+      functionsKey: env.FUNCTIONS_KEY,
       timeoutMs: env.UPSTREAM_TIMEOUT_MS,
     },
     config: {
       safetyRemoteUrl: env.SAFETY_REMOTE_URL,
       safetySession: { idleMs: env.SAFETY_TOKEN_TTL * 1000, maxMs: env.SAFETY_SESSION_MAX * 1000 },
+      timezone: env.APP_TIMEZONE,
     },
   };
 }
