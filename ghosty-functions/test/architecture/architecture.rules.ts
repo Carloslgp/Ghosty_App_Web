@@ -18,12 +18,12 @@ declare module 'vitest' {
 }
 
 export interface ArchitectureOptions {
-  /** Camada de entrada: `api` nos serviços NestJS e `functions` na Function App. */
-  entryLayer: 'api' | 'functions';
+  /** Camada de entrada (API): `src/api`, com os controllers do NestJS ou as funções da Function App. */
+  entryLayer: 'api';
   /**
    * Arquivos da camada de entrada que podem importar a infraestrutura (raiz de composição),
    * como padrões de caminho relativos à raiz do projeto. Ex.: `src/api/**\/*.module.ts`.
-   * Use `['src/functions/**']` quando toda a camada de entrada monta as dependências.
+   * Use `['src/api/**']` quando toda a camada de entrada monta as dependências (Function App).
    */
   compositionRoots: string[];
   /** Pacotes proibidos em `domain` e `application`, somados à lista padrão. */
@@ -174,8 +174,36 @@ export function withoutPackages(packages: string[]): (file: FileInfo) => boolean
     );
 }
 
+/**
+ * Os módulos que o arquivo importa: `import`, `export ... from` (inclusive `export * as x from`, que o
+ * `ts.preProcessFile` não reconhece) e `import()` dinâmico.
+ */
 export function importedSpecifiers(source: string): string[] {
-  return ts.preProcessFile(source, true, true).importedFiles.map((ref) => ref.fileName);
+  const file = ts.createSourceFile('file.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const specifiers: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (ts.isExternalModuleReference(node) && ts.isStringLiteral(node.expression)) {
+      // import x = require('...')
+      specifiers.push(node.expression.text);
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
+      node.arguments[0] &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return specifiers;
 }
 
 export function matchesPackage(specifier: string, pkg: string): boolean {

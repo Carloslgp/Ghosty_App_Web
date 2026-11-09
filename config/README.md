@@ -49,7 +49,7 @@ O script não tem dependências: basta o Node 24.
 1. `src/domain` não depende de `application`, `infrastructure` nem da camada de entrada, e não importa frameworks (`@nestjs/*`, `@azure/*`, `typeorm`, `mongodb`, `mssql`, `express`, `class-validator`…).
 2. `src/application` não depende de `infrastructure` nem da entrada, e também não importa frameworks.
 3. `src/infrastructure` não depende da camada de entrada.
-4. A camada de entrada (`src/api` ou `src/functions`) só usa `infrastructure` nas raízes de composição (`app.module.ts` e os `*.module.ts` das features).
+4. A camada de entrada (`src/api`) só usa `infrastructure` nas raízes de composição (`app.module.ts` e os `*.module.ts` das features nos serviços NestJS; cada função na Function App).
 5. Um caso de uso não importa outro. Um caso de uso é uma pasta de `application/features` com um `*.handler.ts`; o que for compartilhado vai para `domain` ou para `application/ports`.
 6. Não há dependências circulares em `src`.
 7. Nomes: `*.handler.ts` só em `application/features`, `*.controller.ts` só em `src/api`, `*.repository.ts` só em `infrastructure` (implementação) ou em `application/ports` (porta).
@@ -114,10 +114,10 @@ describeArchitecture({
 });
 ```
 
-Na Function App, a entrada é `src/functions`, e cada função monta as próprias dependências:
+Na Function App, a entrada também é `src/api`, e cada função monta as próprias dependências:
 
 ```ts
-describeArchitecture({ entryLayer: 'functions', compositionRoots: ['src/functions/**'] });
+describeArchitecture({ entryLayer: 'api', compositionRoots: ['src/api/**'] });
 ```
 
 Scripts do `package.json` (o CI roda `lint`, `typecheck`, `test` e `build`, nessa ordem):
