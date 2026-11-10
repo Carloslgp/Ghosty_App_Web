@@ -599,11 +599,19 @@ step_docs() {
   bold "12. Página de documentação (Swaggers, AsyncAPI e links)"
   local out
   out="$(mktemp -d)"
+  # O export vem com o documento direto no corpo ou dentro de "value" (como objeto ou texto), conforme a
+  # versão da API. Só fica o arquivo que tiver um OpenAPI de verdade.
   for api in web-bff notes-service safety-service functions; do
-    az rest --method get --url "$(apim_url "apis/$api")&format=openapi%2Bjson&export=true" \
-      --query "value" -o json --only-show-errors > "$out/apim-$api.json" 2>/dev/null ||
+    if ! az rest --method get --url "$(apim_url "apis/$api")&format=openapi%2Bjson&export=true" \
+      -o json --only-show-errors >"$out/raw.json" 2>/dev/null ||
+      ! jq -e 'if has("openapi") or has("swagger") then . else .value end
+        | if type == "string" then fromjson else . end | select(type == "object" and has("paths"))' \
+        "$out/raw.json" >"$out/apim-$api.json"; then
+      rm -f "$out/apim-$api.json"
       warn "não consegui exportar a API $api do APIM"
+    fi
   done
+  rm -f "$out/raw.json"
   (cd "$ROOT/ghosty-docs" && npm ci --silent &&
     { SITE_DIR="$ROOT/ghosty-docs/site" npm run asyncapi:html || echo "aviso: sem o HTML do AsyncAPI (fica o link do Studio)" >&2; } &&
     SITE_DIR="$ROOT/ghosty-docs/site" APIM_EXPORTS="$out" REPO_URL="$(git -C "$ROOT" remote get-url origin 2>/dev/null | sed 's#git@github.com:#https://github.com/#; s#\.git$##')" \
