@@ -28,8 +28,10 @@ need() { for name in "$@"; do [ -n "${!name:-}" ] || die "Falta $name em $(basen
 load_env() {
   [ -f "$ENV_FILE" ] || die "Falta $ENV_FILE (copie o azure.env.example e preencha)."
   # Sem o \r das quebras de linha do Windows: o arquivo pode ter sido editado no VS Code ou no Bloco de Notas.
+  # As variáveis não são exportadas: cada comando recebe só o que precisa (um valor vazio no azure.env não
+  # pode apagar o padrão de um serviço, e a URI do Atlas e os tokens não vazam para o npm ci).
   # shellcheck disable=SC1090
-  set -a; source <(tr -d '\r' <"$ENV_FILE"); set +a
+  source <(tr -d '\r' <"$ENV_FILE")
 
   need SUBSCRIPTION_ID LOC SUF
   [[ "$SUF" =~ ^[a-z]{4}$ ]] || die "SUF precisa ter 4 letras minúsculas."
@@ -593,9 +595,11 @@ step_seed() {
     DB_PROVIDER=mssql MSSQL_HOST="$SQL.database.windows.net" MSSQL_DATABASE="$SQL_DB" MSSQL_USER="$SQL_APP_USER" \
       MSSQL_PASSWORD="$(kv_get mssql-password)" DATA_ENCRYPTION_KEY="$(kv_get data-encryption-key)" \
       INTERNAL_API_KEY="$(kv_get internal-api-key)" INVITE_BASE_URL="$(swa_url "$SWA_MAIN")/c" \
-      TELEGRAM_BOT_USERNAME="$(bot_username)" node dist/seed/main.js demo)
+      TELEGRAM_BOT_USERNAME="$(bot_username)" DEMO_ACCOUNT_ID="$DEMO_ACCOUNT_ID" DEMO_PASSWORD="$DEMO_PASSWORD" \
+      DEMO_LOCK_CODE="$DEMO_LOCK_CODE" DEMO_TELEGRAM_CHAT_ID="${DEMO_TELEGRAM_CHAT_ID:-}" node dist/seed/main.js demo)
   (cd "$ROOT/ghosty-notes-service" && npm ci --silent && npm run build --silent &&
-    MONGODB_URI="$(kv_get mongodb-uri)" MONGODB_DB=notes INTERNAL_API_KEY=somente-seed node dist/seed/main.js demo)
+    MONGODB_URI="$(kv_get mongodb-uri)" MONGODB_DB=notes INTERNAL_API_KEY=somente-seed \
+      DEMO_ACCOUNT_ID="$DEMO_ACCOUNT_ID" node dist/seed/main.js demo)
 }
 
 # ---------------------------------------------------------------- 14. testes de fumaça
