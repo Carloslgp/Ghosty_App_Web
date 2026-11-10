@@ -140,7 +140,13 @@ docker push <usuario>/ghosty-safety-service:v1
 
 Roda no Azure Container Apps (`app-core`), com o Azure SQL (free tier, pausa automática), as filas do Azure Storage e os segredos no Key Vault. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
 
-> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
+| Item | Link |
+|---|---|
+| Swagger (direto no Container App) | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-safety-service |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-safety-service (tag `v1`) |
+
+Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 
 ## Projetos do repositório
 

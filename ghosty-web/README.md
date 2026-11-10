@@ -118,7 +118,14 @@ Os testes de arquitetura ([`test/architecture.test.ts`](test/architecture.test.t
 
 Os 3 apps são publicados em Static Web Apps separados (plano Free), com hostnames aleatórios: o shell, o remote `notes` e o remote `safety`. O build da nuvem aponta para o API Management. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
 
-> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
+| Item | Link |
+|---|---|
+| Frontend (shell) | https://delightful-flower-05caf9c0f.6.azurestaticapps.net |
+| Remote `notes` | https://witty-ocean-0e8ab6f0f.4.azurestaticapps.net/remoteEntry.js |
+| Remote `safety` | https://ashy-field-046e66c0f.8.azurestaticapps.net/remoteEntry.js |
+| API Gateway (para onde o front aponta) | https://apim-notas-oigv.azure-api.net |
+
+Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 
 ## Projetos do repositório
 

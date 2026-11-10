@@ -31,6 +31,21 @@ flowchart LR
 - **BFF:** expõe `GET /aggregated-data`, que junta os dois microserviços e a Azure Function num único JSON.
 - **Backends:** seguem Clean Architecture (`domain`, `application`, `infrastructure`, `api`) com Vertical Slice (um caso de uso por pasta), e têm testes de unidade e de arquitetura.
 
+## Na nuvem (Azure)
+
+| Item | Link |
+|---|---|
+| Frontend | https://delightful-flower-05caf9c0f.6.azurestaticapps.net |
+| API Gateway (API Management) | https://apim-notas-oigv.azure-api.net |
+| Documentação (todos os Swaggers, inclusive os do API Gateway, e os eventos) | https://proud-field-09986c10f.3.azurestaticapps.net |
+| Swagger do BFF | https://app-web-api.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do notes-service | https://app-notes.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do safety-service | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger da Azure Function | https://func-notas-oigv.azurewebsites.net/api/docs |
+| Imagens no Docker Hub | https://hub.docker.com/u/oldspiffy |
+
+Os serviços escalam a zero: a primeira chamada depois de um tempo parado pode levar alguns segundos. A implantação inteira é feita por [`ghosty-docs/infra/deploy.sh`](ghosty-docs/infra).
+
 ## Estrutura do repositório
 
 | Pasta | Projeto | Tecnologias principais |
@@ -59,7 +74,7 @@ Pré-requisito: Node.js 24 LTS (versão em [`.nvmrc`](.nvmrc)). Cada projeto é 
 
 - **Configuração compartilhada.** TypeScript, ESLint, Prettier, Vitest e as regras de arquitetura (ArchUnitTS) ficam em [`config/`](config). Cada projeto guarda uma cópia, atualizada com `node config/sync.mjs`, e o CI confere que nenhuma cópia divergiu.
 - **CI.** Um workflow por projeto em [`.github/workflows/`](.github/workflows) (`ci-bff.yml`, `ci-notes.yml`, `ci-safety.yml`, `ci-functions.yml`, `ci-web.yml`, `ci-docs.yml`), cada um com filtro de caminho: `npm ci` → `lint` → `typecheck` → `test` → `build`, mais o build da imagem Docker nos 3 serviços. O `ci-repo.yml` valida os próprios workflows.
-- **Imagens.** O [`docker.yml`](.github/workflows/docker.yml) publica `<usuario>/ghosty-bff`, `<usuario>/ghosty-notes-service` e `<usuario>/ghosty-safety-service` no Docker Hub quando uma tag `v*` é criada (`git tag v1 && git push origin v1`). Precisa dos secrets `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN` no repositório.
+- **Imagens.** O [`docker.yml`](.github/workflows/docker.yml) publica `ghosty-bff`, `ghosty-notes-service` e `ghosty-safety-service` no Docker Hub (hoje em [`oldspiffy`](https://hub.docker.com/u/oldspiffy)) quando uma tag `v*` é criada (`git tag v1 && git push origin v1`). Precisa dos secrets `DOCKERHUB_USERNAME` e `DOCKERHUB_TOKEN` no repositório.
 - **Commits.** Conventional Commits em português (`feat:`, `fix:`, `test:`, `docs:`, `chore:`), uma branch por tarefa (`feat/<ID>-<descricao>`) e pull request com revisão.
 
 ## Alunos

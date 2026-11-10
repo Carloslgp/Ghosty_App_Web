@@ -93,17 +93,19 @@ O workflow `ci-docs.yml` roda `lint`, `test` e `test:mocks` a cada pull request 
 
 ## Links da entrega
 
-> Preenchidos depois do deploy (`bash infra/deploy.sh status`). A página de documentação publicada no Static Web App `web-docs` reúne todos.
+A [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net) reúne todos (`bash infra/deploy.sh status` imprime de novo).
 
 | Item | Link |
 |---|---|
-| Frontend | — |
-| API Gateway | — |
-| Swagger do BFF | — |
-| Swagger do notes-service | — |
-| Swagger do safety-service | — |
-| Documentação dos eventos (AsyncAPI) | — |
-| Imagens no Docker Hub | — |
+| Frontend | https://delightful-flower-05caf9c0f.6.azurestaticapps.net |
+| API Gateway | https://apim-notas-oigv.azure-api.net |
+| Swagger do API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-web-bff |
+| Swagger do BFF | https://app-web-api.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do notes-service | https://app-notes.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do safety-service | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger da Azure Function | https://func-notas-oigv.azurewebsites.net/api/docs |
+| Documentação dos eventos (AsyncAPI) | https://proud-field-09986c10f.3.azurestaticapps.net/events/ |
+| Imagens no Docker Hub | https://hub.docker.com/u/oldspiffy |
 | Vídeo no YouTube | — |
 
 ## Projetos do repositório

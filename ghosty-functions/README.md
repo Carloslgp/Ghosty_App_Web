@@ -113,7 +113,14 @@ npm run typecheck
 
 Roda numa Function App (Flex Consumption; plano B: Consumption), com as configurações apontando para o Key Vault. O webhook do bot da nuvem é registrado no deploy. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
 
-> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
+| Item | Link |
+|---|---|
+| Swagger da Function | https://func-notas-oigv.azurewebsites.net/api/docs |
+| OpenAPI (JSON) | https://func-notas-oigv.azurewebsites.net/api/openapi.json |
+| Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-functions |
+| Eventos (AsyncAPI) | https://proud-field-09986c10f.3.azurestaticapps.net/events/ |
+
+Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 
 ## Projetos do repositório
 

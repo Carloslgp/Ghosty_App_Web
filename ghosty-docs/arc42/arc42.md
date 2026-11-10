@@ -12,18 +12,19 @@ Projeto acadêmico da disciplina de Soluções Cloud.
 |---|---|
 | Repositório (GitHub) | https://github.com/Carloslgp/Ghosty_App_Web |
 | Pastas: [`ghosty-web`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-web) · [`ghosty-bff`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-bff) · [`ghosty-notes-service`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-notes-service) · [`ghosty-safety-service`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-safety-service) · [`ghosty-functions`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-functions) · [`ghosty-docs`](https://github.com/Carloslgp/Ghosty_App_Web/tree/main/ghosty-docs) | — |
-| Frontend | _preencher depois do deploy_ |
-| API Gateway (API Management) | _preencher depois do deploy_ |
-| Swagger do API Gateway | _preencher depois do deploy (página de documentação)_ |
-| Swagger do BFF | _preencher depois do deploy_ |
-| Swagger do notes-service | _preencher depois do deploy_ |
-| Swagger do safety-service | _preencher depois do deploy_ |
-| Swagger da Azure Function | _preencher depois do deploy_ |
-| Swagger dos eventos (AsyncAPI) | _preencher depois do deploy_ |
-| Docker Hub: `ghosty-bff`, `ghosty-notes-service`, `ghosty-safety-service` | _preencher depois da publicação_ |
+| Frontend | https://delightful-flower-05caf9c0f.6.azurestaticapps.net |
+| API Gateway (API Management) | https://apim-notas-oigv.azure-api.net |
+| Swagger do API Gateway | [BFF](https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-web-bff) · [notes-service](https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-notes-service) · [safety-service](https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-safety-service) · [Function](https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-functions) |
+| Swagger do BFF | https://app-web-api.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do notes-service | https://app-notes.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger do safety-service | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger da Azure Function | https://func-notas-oigv.azurewebsites.net/api/docs |
+| Swagger dos eventos (AsyncAPI) | https://proud-field-09986c10f.3.azurestaticapps.net/events/ |
+| Docker Hub: `ghosty-bff`, `ghosty-notes-service`, `ghosty-safety-service` | https://hub.docker.com/u/oldspiffy (tag `v1`) |
+| Página com todos os links e Swaggers | https://proud-field-09986c10f.3.azurestaticapps.net |
 | Vídeo (YouTube) | _preencher depois da gravação_ |
 
-O comando `bash ghosty-docs/infra/deploy.sh status` imprime todos os links do ambiente.
+O comando `bash ghosty-docs/infra/deploy.sh status` imprime todos os links do ambiente. O API Gateway exige a chave de assinatura (`Ocp-Apim-Subscription-Key`) do produto `web-app`, que já vai no front; os serviços são escalados a zero, então a primeira chamada depois de um tempo parado pode levar alguns segundos.
 
 ---
 

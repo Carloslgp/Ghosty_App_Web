@@ -131,7 +131,14 @@ docker push <usuario>/ghosty-bff:v1
 
 Roda no Azure Container Apps (`app-web-api`), atrás do API Management, com os segredos no Key Vault. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
 
-> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
+| Item | Link |
+|---|---|
+| Swagger (direto no Container App) | https://app-web-api.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-web-bff |
+| API Gateway | https://apim-notas-oigv.azure-api.net |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-bff (tag `v1`) |
+
+Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 
 ## Projetos do repositório
 

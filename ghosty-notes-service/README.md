@@ -120,7 +120,13 @@ docker push <usuario>/ghosty-notes-service:v1
 
 Roda no Azure Container Apps (`app-notes`), com o MongoDB Atlas num cluster em região Azure e a URI no Key Vault. A implantação está em [`ghosty-docs/infra`](../ghosty-docs/infra).
 
-> Os links são preenchidos depois do deploy (`bash ghosty-docs/infra/deploy.sh status` imprime todos).
+| Item | Link |
+|---|---|
+| Swagger (direto no Container App) | https://app-notes.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
+| Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-notes-service |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-notes-service (tag `v1`) |
+
+Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 
 ## Projetos do repositório
 
