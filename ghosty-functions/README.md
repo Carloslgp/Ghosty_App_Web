@@ -87,6 +87,7 @@ npm start               # compila e roda o func start na porta 7071
 |---|---|---|
 | `AzureWebJobsStorage` · `QueueConnection` | `UseDevelopmentStorage=true` | Storage do host e das filas (Azurite) |
 | `SAFETY_SERVICE_URL` · `INTERNAL_API_KEY` | `http://localhost:3002` · `dev-internal-key` | Rotas internas do safety-service |
+| `SAFETY_TIMEOUT_MS` | `5000` | Tempo máximo de cada chamada ao safety-service (opcional) |
 | `APP_TIMEZONE` | `America/Sao_Paulo` | Hora da mensagem quando o evento não traz o fuso |
 | `DELIVERY_MODE` | `simulated` | Liga (`telegram`) ou desliga (`simulated`) o envio real |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_WEBHOOK_SECRET` · `TELEGRAM_BOT_USERNAME` | vazio · vazio · `ghosty_dev_bot` | Bot de desenvolvimento (@BotFather) |
