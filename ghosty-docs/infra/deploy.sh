@@ -160,8 +160,10 @@ step_check() {
   else
     info "Defender for Cloud: nenhum plano pago ligado"
   fi
-  az extension add --name containerapp --upgrade --only-show-errors
-  az extension add --name application-insights --upgrade --only-show-errors
+  # Os comandos az containerapp do próprio CLI bastam. A extensão containerapp só tem versões de prévia para o
+  # CLI atual, e elas criam ambientes "Express", que não aceitam segredos do Key Vault: fica de fora.
+  az extension remove --name containerapp --only-show-errors 2>/dev/null || true
+  az extension add --name application-insights --upgrade --allow-preview false --only-show-errors
   for ns in Microsoft.App Microsoft.OperationalInsights Microsoft.Web Microsoft.Sql Microsoft.Storage \
     Microsoft.KeyVault Microsoft.ApiManagement; do
     az provider register --namespace "$ns" --only-show-errors --output none
