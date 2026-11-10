@@ -44,6 +44,7 @@ load_env() {
 
   KV="kv-notas-$SUF"
   LAW="log-notas-$SUF"
+  AI="appi-notas-$SUF"
   SQL="sql-notas-$SUF"
   SQL_DB=safety
   SQL_ADMIN=sqladmin
@@ -147,7 +148,17 @@ step_check() {
   [[ "$quota" == *Starter* ]] && warn "Oferta Starter: o free tier do Azure SQL não funciona nela."
   info "Regiões permitidas pela policy (vazio: sem restrição):"
   az policy assignment list --query "[].parameters.listOfAllowedLocations.value" -o tsv 2>/dev/null | tr '\t' '\n' | sort -u | sed 's/^/      /'
+  # Planos pagos do Defender for Cloud cobram por recurso. Os dois que vêm ligados em toda assinatura são gratuitos.
+  local paid
+  paid="$(az security pricing list --query "value[?pricingTier=='Standard' && name!='FoundationalCspm' && name!='Discovery'].name" \
+    -o tsv 2>/dev/null | tr '\n' ' ')"
+  if [ -n "$paid" ]; then
+    warn "Planos pagos do Defender for Cloud ligados: $paid(desligue em Defender for Cloud → Environment settings)."
+  else
+    info "Defender for Cloud: nenhum plano pago ligado"
+  fi
   az extension add --name containerapp --upgrade --only-show-errors
+  az extension add --name application-insights --upgrade --only-show-errors
   for ns in Microsoft.App Microsoft.OperationalInsights Microsoft.Web Microsoft.Sql Microsoft.Storage \
     Microsoft.KeyVault Microsoft.ApiManagement; do
     az provider register --namespace "$ns" --only-show-errors --output none
@@ -171,7 +182,33 @@ step_base() {
   az group create -n "$RG" -l "$LOC" --only-show-errors --output none
   exists az monitor log-analytics workspace show -g "$RG" -n "$LAW" ||
     az monitor log-analytics workspace create -g "$RG" -n "$LAW" -l "$LOC" --only-show-errors --output none
-  info "$RG e $LAW prontos em $LOC"
+  # Teto diário de 0,1 GB: no máximo ~3 GB por mês, abaixo dos 5 GB gratuitos. Retenção de 30 dias (gratuita).
+  az monitor log-analytics workspace update -g "$RG" -n "$LAW" --quota 0.1 --retention-time 30 \
+    --only-show-errors --output none
+  info "$RG e $LAW prontos em $LOC (logs limitados a 0,1 GB por dia)"
+  budget_ensure
+}
+
+# Orçamento da assinatura com alerta por e-mail (o orçamento não custa nada e não desliga recursos):
+# avisa quando o gasto real passa de US$ 1 e quando a previsão do mês passa de US$ 5.
+budget_ensure() {
+  if [ -z "${PUBLISHER_EMAIL:-}" ]; then
+    warn "sem PUBLISHER_EMAIL: orçamento com alerta não criado"
+    return 0
+  fi
+  local body
+  body="$(jq -n --arg start "$(date -u +%Y-%m-01)T00:00:00Z" --arg email "$PUBLISHER_EMAIL" '{properties: {
+    category: "Cost", amount: 5, timeGrain: "Monthly", timePeriod: {startDate: $start},
+    notifications: {
+      real: {enabled: true, operator: "GreaterThan", threshold: 20, thresholdType: "Actual", contactEmails: [$email]},
+      previsto: {enabled: true, operator: "GreaterThan", threshold: 100, thresholdType: "Forecasted", contactEmails: [$email]}
+    }}}')"
+  if az rest --method put --only-show-errors --output none --body "$body" \
+    --url "https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/providers/Microsoft.Consumption/budgets/orcamento-notas?api-version=2023-05-01"; then
+    info "orçamento orcamento-notas: alerta por e-mail acima de US\$ 1 gasto (ou US\$ 5 previstos) no mês"
+  else
+    warn "não foi possível criar o orçamento (a oferta pode não permitir); acompanhe em Cost Management"
+  fi
 }
 
 # ---------------------------------------------------------------- 3. Key Vault
@@ -269,13 +306,20 @@ functions_package() {
 
 step_functions() {
   bold "6. Function App ($FUNCTIONS_PLAN)"
+  # Application Insights no mesmo workspace (com o teto diário). Sem --app-insights, o functionapp create
+  # criaria um por conta própria, com um workspace sem teto fora do resource group.
+  exists az monitor app-insights component show -g "$RG" -a "$AI" ||
+    az monitor app-insights component create -g "$RG" -a "$AI" -l "$LOC" --kind web --application-type web \
+      --workspace "$(az monitor log-analytics workspace show -g "$RG" -n "$LAW" --query id -o tsv)" \
+      --only-show-errors --output none
   if ! exists az functionapp show -g "$RG" -n "$FN"; then
     if [ "$FUNCTIONS_PLAN" = flex ]; then
       az functionapp create -g "$RG" -n "$FN" --storage-account "$ST" --flexconsumption-location "$LOC" \
-        --runtime node --runtime-version 22 --instance-memory 512 --only-show-errors --output none
+        --runtime node --runtime-version 22 --instance-memory 512 --app-insights "$AI" --only-show-errors --output none
     else
       az functionapp create -g "$RG" -n "$FN" --storage-account "$ST" --consumption-plan-location "$LOC" \
-        --os-type Windows --runtime node --runtime-version 22 --functions-version 4 --only-show-errors --output none
+        --os-type Windows --runtime node --runtime-version 22 --functions-version 4 --app-insights "$AI" \
+        --only-show-errors --output none
     fi
   fi
   az functionapp identity assign -g "$RG" -n "$FN" --only-show-errors --output none
