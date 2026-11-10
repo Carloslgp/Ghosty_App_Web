@@ -565,11 +565,14 @@ step_cross() {
 # ---------------------------------------------------------------- 11. front
 
 swa_deploy() { # pasta recurso
-  # De dentro da pasta e com a configuração dela: de outro lugar, o SWA CLI usa o primeiro
-  # staticwebapp.config.json que encontrar (o do shell valia para os remotes).
-  local token
+  # A partir da pasta de cima e com a configuração da própria pasta: sem --swa-config-location, o SWA CLI
+  # usa o primeiro staticwebapp.config.json que encontrar (o do shell valia para os remotes), e ele não
+  # aceita rodar de dentro da pasta publicada.
+  local token dir
   token="$(swa_token "$2")"
-  (cd "$1" && npx --yes "$SWA_CLI" deploy . --swa-config-location . --deployment-token "$token" --env production)
+  dir="$(basename "$1")"
+  (cd "$(dirname "$1")" &&
+    npx --yes "$SWA_CLI" deploy "$dir" --swa-config-location "$dir" --deployment-token "$token" --env production)
 }
 
 step_web() {
