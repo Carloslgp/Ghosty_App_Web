@@ -366,8 +366,11 @@ ca_create() { # app imagem porta
     az containerapp create -g "$RG" -n "$app" --environment "$CAE" --image "$image" \
       --registry-server docker.io --registry-username "$DOCKERHUB_USER" --registry-password "$DOCKERHUB_TOKEN" \
       --target-port "$port" --ingress external --min-replicas 0 --max-replicas 1 --cpu 0.25 --memory 0.5Gi \
-      --system-assigned --env-vars "PORT=$port" --only-show-errors --output none
+      --env-vars "PORT=$port" --only-show-errors --output none
   fi
+  # A identidade vem depois da criação: criada junto, a Azure às vezes responde 500 ("managed identity
+  # bootstrap failed"), sobretudo ao recriar um app com o mesmo nome.
+  retry az containerapp identity assign -g "$RG" -n "$app" --system-assigned --only-show-errors --output none
   assign_role "Key Vault Secrets User" "$(az containerapp show -g "$RG" -n "$app" --query identity.principalId -o tsv)" "$(kv_id)"
 }
 
