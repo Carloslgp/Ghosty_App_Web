@@ -13,13 +13,24 @@ import { fileURLToPath } from 'node:url';
 const CLI = '@asyncapi/cli@6.2.1';
 const TEMPLATE = '@asyncapi/html-template@3.5.6';
 
+/**
+ * No Windows, o `npx` é um .cmd, que o Node só executa por um shell (e aí os argumentos não são
+ * escapados). Pelo `npm run`, o npx-cli.js fica ao lado do npm-cli.js e roda direto no node.
+ */
+function npx(args, options) {
+  const npmCli = process.env.npm_execpath;
+  if (npmCli && path.basename(npmCli) === 'npm-cli.js') {
+    return spawnSync(process.execPath, [path.join(path.dirname(npmCli), 'npx-cli.js'), ...args], options);
+  }
+  return spawnSync('npx', args, { ...options, shell: process.platform === 'win32' });
+}
+
 const docs = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const target = path.join(path.resolve(process.env.SITE_DIR ?? path.join(docs, 'site')), 'events');
 const work = mkdtempSync(path.join(tmpdir(), 'asyncapi-'));
 try {
   cpSync(path.join(docs, 'asyncapi'), path.join(work, 'spec'), { recursive: true });
-  const result = spawnSync(
-    'npx',
+  const result = npx(
     [
       '--yes',
       CLI,

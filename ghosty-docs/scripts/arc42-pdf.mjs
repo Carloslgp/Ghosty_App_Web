@@ -128,24 +128,30 @@ ${content}
 }
 
 function findChrome() {
-  const candidates = [
-    process.env.CHROME,
-    'google-chrome',
-    'google-chrome-stable',
-    'chromium',
-    'chromium-browser',
+  if (process.env.CHROME) return process.env.CHROME;
+  // Caminhos fixos: basta o arquivo existir. No Windows, `chrome.exe --version` não imprime nada e abre
+  // o navegador, o que travaria o script. O Edge também é Chromium e imprime o PDF do mesmo jeito.
+  const programFiles = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA];
+  const paths = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  ].filter(Boolean);
-  for (const candidate of candidates) {
+    ...programFiles
+      .filter(Boolean)
+      .map((dir) => path.join(dir, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+    ...programFiles
+      .filter(Boolean)
+      .map((dir) => path.join(dir, 'Microsoft', 'Edge', 'Application', 'msedge.exe')),
+  ];
+  const found = paths.find((candidate) => existsSync(candidate));
+  if (found) return found;
+  for (const candidate of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
     try {
-      execFileSync(candidate, ['--version'], { stdio: 'ignore' });
+      execFileSync(candidate, ['--version'], { stdio: 'ignore', timeout: 10_000 });
       return candidate;
     } catch {
       // tenta o próximo
     }
   }
-  throw new Error('Chrome ou Chromium não encontrado. Defina CHROME=/caminho/do/navegador.');
+  throw new Error('Chrome, Chromium ou Edge não encontrado. Defina CHROME=/caminho/do/navegador.');
 }
 
 function main() {
@@ -176,7 +182,7 @@ function main() {
       '--dump-dom',
       pathToFileURL(html).href,
     ],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] },
+    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: 180_000 },
   );
   const expected = (arc42.match(/```mermaid/g)?.length ?? 0) + (c4.match(/```mermaid/g)?.length ?? 0);
   const drawn = dom.match(/<pre class="mermaid"[^>]*data-processed="true"[^>]*>\s*<svg/g)?.length ?? 0;
@@ -198,7 +204,7 @@ function main() {
       `--print-to-pdf=${pdf}`,
       pathToFileURL(html).href,
     ],
-    { stdio: ['ignore', 'ignore', 'ignore'] },
+    { stdio: ['ignore', 'ignore', 'ignore'], timeout: 180_000 },
   );
   if (!existsSync(pdf) || statSync(pdf).size < 10_000) throw new Error('O Chrome não gerou o PDF.');
   process.stdout.write(
