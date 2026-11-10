@@ -6,8 +6,9 @@
 //
 // - shell: SPA (navigationFallback) e cabeçalhos de segurança (CSP com as origens dos remotes e da API).
 // - remotes: CORS só para o shell (o remoteEntry.js e os chunks são módulos carregados de outra origem),
-//   e o index.html de desenvolvimento sai do pacote (a raiz do remote responde 404).
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+//   e o index.html de desenvolvimento é trocado por uma página vazia e neutra (o Static Web Apps exige uma
+//   página padrão, e a raiz do remote não deve mostrar nada).
+import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,6 +27,9 @@ const shell = origin('SHELL_ORIGIN');
 const notes = origin('NOTES_ORIGIN');
 const safety = origin('SAFETY_ORIGIN');
 const api = origin('API_ORIGIN');
+
+const BLANK_PAGE =
+  '<!doctype html>\n<html lang="pt-BR">\n<head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Notas</title></head>\n<body></body>\n</html>\n';
 
 const common = {
   'X-Content-Type-Options': 'nosniff',
@@ -80,6 +84,6 @@ for (const [app, kind] of [
   const dist = path.join(root, 'apps', app, 'dist');
   if (!existsSync(dist)) throw new Error(`Rode o build antes: falta ${path.relative(root, dist)}.`);
   writeFileSync(path.join(dist, 'staticwebapp.config.json'), `${JSON.stringify(configs[kind], null, 2)}\n`);
-  if (kind === 'remote') rmSync(path.join(dist, 'index.html'), { force: true });
+  if (kind === 'remote') writeFileSync(path.join(dist, 'index.html'), BLANK_PAGE);
   process.stdout.write(`${app}: staticwebapp.config.json gravado\n`);
 }
