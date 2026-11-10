@@ -15,6 +15,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 ENV_FILE="${AZURE_ENV_FILE:-$HERE/azure.env}"
 APIM_API_VERSION=2022-08-01
+# Primeira versão da API do Container Apps com o campo environmentMode.
+ACA_API_VERSION=2025-10-02-preview
 SWA_CLI="@azure/static-web-apps-cli@2"
 
 bold() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -393,12 +395,27 @@ step_containerapps() {
   for image in ghosty-bff ghosty-notes-service ghosty-safety-service; do
     docker_image_exists "$image" || die "Falta a imagem $DOCKERHUB_USER/$image:$IMAGE_TAG no Docker Hub."
   done
+  # O modo do ambiente vai explícito, pela API: sem ele, a Azure cria o ambiente "Express", que não aceita
+  # segredos por referência ao Key Vault (e o modo não muda depois de criado).
+  local cae_url
+  cae_url="https://management.azure.com/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG/providers/Microsoft.App/managedEnvironments/$CAE?api-version=$ACA_API_VERSION"
   if ! exists az containerapp env show -g "$RG" -n "$CAE"; then
-    az containerapp env create -g "$RG" -n "$CAE" -l "$LOC" \
-      --logs-workspace-id "$(az monitor log-analytics workspace show -g "$RG" -n "$LAW" --query customerId -o tsv)" \
-      --logs-workspace-key "$(az monitor log-analytics workspace get-shared-keys -g "$RG" -n "$LAW" --query primarySharedKey -o tsv)" \
-      --only-show-errors --output none
+    local law_id law_key
+    law_id="$(az monitor log-analytics workspace show -g "$RG" -n "$LAW" --query customerId -o tsv)"
+    law_key="$(az monitor log-analytics workspace get-shared-keys -g "$RG" -n "$LAW" --query primarySharedKey -o tsv)"
+    az rest --method put --url "$cae_url" --only-show-errors --output none \
+      --body "$(jq -n --arg loc "$LOC" --arg id "$law_id" --arg key "$law_key" '{location: $loc, properties: {
+        environmentMode: "WorkloadProfiles",
+        workloadProfiles: [{name: "Consumption", workloadProfileType: "Consumption"}],
+        appLogsConfiguration: {destination: "log-analytics", logAnalyticsConfiguration: {customerId: $id, sharedKey: $key}}}}')"
+    info "criando o ambiente $CAE (alguns minutos)..."
+    for _ in $(seq 1 60); do
+      [ "$(az containerapp env show -g "$RG" -n "$CAE" --query properties.provisioningState -o tsv 2>/dev/null)" = Succeeded ] && break
+      sleep 10
+    done
   fi
+  [ "$(az rest --method get --url "$cae_url" --query properties.environmentMode -o tsv)" != Express ] ||
+    die "O ambiente $CAE está no modo Express, que não aceita segredos do Key Vault. Apague os apps e o ambiente (az containerapp env delete) e rode este passo de novo."
 
   ca_create "$APP_NOTES" ghosty-notes-service 3001
   ca_create "$APP_CORE" ghosty-safety-service 3002
