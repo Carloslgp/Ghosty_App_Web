@@ -104,7 +104,8 @@ assign_role() { # papel principal escopo [tipo]
 }
 
 fqdn() { az containerapp show -g "$RG" -n "$1" --query properties.configuration.ingress.fqdn -o tsv; }
-fn_host() { az functionapp show -g "$RG" -n "$FN" --query defaultHostName -o tsv; }
+# Em versões novas do CLI, o functionapp show de uma Flex Consumption traz os campos dentro de "properties".
+fn_host() { az functionapp show -g "$RG" -n "$FN" --query "properties.defaultHostName || defaultHostName" -o tsv; }
 swa_url() { printf 'https://%s' "$(az staticwebapp show -g "$RG" -n "$1" --query defaultHostname -o tsv)"; }
 swa_token() { az staticwebapp secrets list -g "$RG" -n "$1" --query properties.apiKey -o tsv; }
 apim_gateway() { az apim show -g "$RG" -n "$APIM" --query gatewayUrl -o tsv; }
