@@ -254,7 +254,7 @@ step_sql() {
   exists az sql db show -g "$RG" -s "$SQL" -n "$SQL_DB" ||
     az sql db create -g "$RG" -s "$SQL" -n "$SQL_DB" --edition GeneralPurpose --compute-model Serverless \
       --family Gen5 --capacity 2 --use-free-limit --free-limit-exhaustion-behavior AutoPause \
-      --auto-pause-delay 60 --only-show-errors --output none
+      --auto-pause-delay 60 --backup-storage-redundancy Local --only-show-errors --output none
   az sql server firewall-rule create -g "$RG" -s "$SQL" -n azure-services \
     --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --only-show-errors --output none
   my_ip="$(curl -sf https://api.ipify.org)"
