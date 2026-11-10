@@ -27,8 +27,9 @@ need() { for name in "$@"; do [ -n "${!name:-}" ] || die "Falta $name em $(basen
 # Lê o azure.env e deriva os nomes dos recursos (todos neutros).
 load_env() {
   [ -f "$ENV_FILE" ] || die "Falta $ENV_FILE (copie o azure.env.example e preencha)."
+  # Sem o \r das quebras de linha do Windows: o arquivo pode ter sido editado no VS Code ou no Bloco de Notas.
   # shellcheck disable=SC1090
-  set -a; source "$ENV_FILE"; set +a
+  set -a; source <(tr -d '\r' <"$ENV_FILE"); set +a
 
   need SUBSCRIPTION_ID LOC SUF
   [[ "$SUF" =~ ^[a-z]{4}$ ]] || die "SUF precisa ter 4 letras minúsculas."
