@@ -23,7 +23,7 @@ Projeto acadêmico da disciplina de Soluções Cloud.
 | Docker Hub: `ghosty-bff`, `ghosty-notes-service`, `ghosty-safety-service` | https://hub.docker.com/u/oldspiffy (tags `v1` e `v1.1`; a `v1.1` é a que roda na Azure) |
 | Página com todos os links e Swaggers | https://proud-field-09986c10f.3.azurestaticapps.net |
 | Canvas | [Anexo: Canvas](#anexo-canvas) · [`canvas.pdf`](https://github.com/Carloslgp/Ghosty_App_Web/blob/main/ghosty-docs/canvas/canvas.pdf) |
-| Prints (Swaggers, frontend, API Gateway, Docker Hub, CI) | [Anexo: prints do app na Azure](#anexo-prints-do-app-na-azure) |
+| Prints (Swaggers, frontend, API Gateway, portal da Azure, Docker Hub, CI) | [Anexo: prints do app na Azure](#anexo-prints-do-app-na-azure) |
 | Vídeo (YouTube) | _preencher depois da gravação_ |
 
 O comando `bash ghosty-docs/infra/deploy.sh status` imprime todos os links do ambiente. O API Gateway exige a chave de assinatura (`Ocp-Apim-Subscription-Key`) do produto `web-app`, que já vai no front; os serviços são escalados a zero, então a primeira chamada depois de um tempo parado pode levar alguns segundos.
@@ -336,7 +336,7 @@ Lean Canvas da versão web, na ordem de preenchimento do modelo (problema e segm
 
 ## Anexo: prints do app na Azure
 
-Tirados com `npm run prints` (Chrome headless), direto das URLs públicas da tabela "Links da entrega", na conta de demonstração "Maria Exemplo". O Teste seguro não envia nada para ninguém. Chaves e tokens aparecem cortados.
+Tirados com `npm run prints` (Chrome headless), direto das URLs públicas da tabela "Links da entrega", na conta de demonstração "Maria Exemplo". O Teste seguro não envia nada para ninguém. Chaves e tokens aparecem cortados. Os prints do portal da Azure (API Management, grupo de recursos e filas) foram tirados à mão, sem chaves à mostra.
 
 ### Swagger do BFF
 
@@ -359,6 +359,20 @@ Tirados com `npm run prints` (Chrome headless), direto das URLs públicas da tab
 ![Swagger do BFF exportado do API Management, com o gateway como servidor](prints/swagger-api-gateway-bff.png)
 
 ![Chamadas reais pelo API Gateway: 200 com as 3 fontes no /aggregated-data, 401 sem a chave de assinatura e 403 direto no BFF](prints/chamadas-api-gateway.png)
+
+### API Gateway no portal da Azure
+
+![API Management no portal: as 4 APIs (web-bff, notes-service, safety-service e functions)](prints/portal-apim-apis.png)
+
+![Política de entrada da API web-bff: CORS só para o front, métodos e cabeçalhos permitidos](prints/portal-apim-politicas.png)
+
+![Aba Test do API Management: GET /health da API web-bff responde 200 OK](prints/portal-apim-teste-200.png)
+
+### Recursos e filas no portal da Azure
+
+![Grupo de recursos rg-notas: API Management, Container Apps, Function App, Key Vault, Azure SQL, Storage, Static Web Apps e monitoramento](prints/portal-grupo-de-recursos.png)
+
+![Filas do Storage usadas pelos eventos: help-requests, check-in-deadlines, alert-dispatches e a fila de mensagens com falha (poison)](prints/portal-storage-filas.png)
 
 ### Frontend funcionando
 

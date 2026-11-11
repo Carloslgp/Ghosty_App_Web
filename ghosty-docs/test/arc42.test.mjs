@@ -100,6 +100,8 @@ describe('anexos de Canvas e prints', () => {
       'swagger-eventos-asyncapi',
       'swagger-api-gateway-bff',
       'chamadas-api-gateway',
+      'portal-apim-apis',
+      'portal-apim-teste-200',
       'front-fachada-notas',
       'front-seguranca-painel',
       'front-teste-seguro',
