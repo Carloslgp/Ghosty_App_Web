@@ -34,7 +34,7 @@ bash ghosty-docs/infra/deploy.sh all
 | `apim` | API Management Consumption: named values (3 do cofre), as 4 APIs importadas do OpenAPI de cada serviço, as políticas de [`../apim`](../apim) e os produtos `web-app` e `internal` com uma assinatura cada |
 | `cross` | As URLs que só existem agora (convite, remote, Function) e o webhook do bot |
 | `web` | Build do front apontando para o APIM, `staticwebapp.config.json` com CSP e CORS e o deploy dos 3 apps |
-| `docs` | Página de documentação: links, Swagger UI dos contratos e das APIs exportadas do APIM e o HTML do AsyncAPI |
+| `docs` | Página de documentação: links (com o vídeo, se `VIDEO_URL` estiver no `azure.env`), Swagger UI dos contratos e das APIs exportadas do APIM e o HTML do AsyncAPI |
 | `seed` | Conta de demonstração "Maria Exemplo" no Azure SQL e as 8 notas no Atlas |
 | `smoke` | Testes de fumaça (health pelo APIM, 401 sem a chave, 403 no BFF direto, Swaggers, front) e o fluxo de ponta a ponta pelo APIM |
 | `status` | Os links da entrega |

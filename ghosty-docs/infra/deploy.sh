@@ -42,7 +42,8 @@ load_env() {
   SWA_LOCATION="${SWA_LOCATION:-eastus2}"
   FUNCTIONS_PLAN="${FUNCTIONS_PLAN:-flex}"
   APIM_API_PATH="${APIM_API_PATH:-}"
-  IMAGE_TAG="${IMAGE_TAG:-v1}"
+  IMAGE_TAG="${IMAGE_TAG:-v1.1}"
+  VIDEO_URL="${VIDEO_URL:-}"
   TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
   TELEGRAM_BOT_USERNAME="${TELEGRAM_BOT_USERNAME:-}"
 
@@ -623,7 +624,7 @@ step_docs() {
       FRONT_URL="$(swa_url "$SWA_MAIN")" GATEWAY_URL="$(api_base_url)" \
       BFF_URL="https://$(fqdn "$APP_BFF")" NOTES_URL="https://$(fqdn "$APP_NOTES")" \
       SAFETY_URL="https://$(fqdn "$APP_CORE")" FUNCTIONS_URL="https://$(fn_host)" \
-      DOCKERHUB_USER="${DOCKERHUB_USER:-}" node scripts/build-site.mjs)
+      DOCKERHUB_USER="${DOCKERHUB_USER:-}" VIDEO_URL="$VIDEO_URL" node scripts/build-site.mjs)
   rm -rf "${out:?}"
   swa_deploy "$ROOT/ghosty-docs/site" "$SWA_DOCS"
   info "documentação: $(swa_url "$SWA_DOCS")"
