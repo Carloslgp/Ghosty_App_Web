@@ -66,6 +66,7 @@ npm run mock:all     # mocks: BFF :4010 · notes-service :4011 · safety-service
 | `npm test` | Convenções dos contratos, validade do AsyncAPI, exemplos de eventos contra os schemas (`ajv`) e o arc42 (seções, links da entrega e o PDF montado com o C4) |
 | `npm run test:mocks` | Sobe os 4 mocks, faz chamadas reais e derruba tudo |
 | `npm run e2e:local` | Teste de ponta a ponta com os serviços reais (precisa do build dos 4 backends) |
+| `npm run e2e:ui` | Teste de ponta a ponta **pela interface**, no Chrome headless, contra o front na nuvem (ou `E2E_FRONT_URL=http://localhost:5173`): 39 passos, de cadastro e notas até o pedido real chegando na página do contato, saída rápida, celular, PWA e exclusão da conta. Usa uma conta nova a cada vez e grava um print de cada falha em `E2E_UI_OUT` |
 | `npm run asyncapi:html` | HTML navegável dos eventos em `site/events` (gerador oficial, baixado pelo `npx`) |
 | `npm run site:build` | Página de documentação em `site/` (links, Swagger UI de cada API e os eventos) |
 | `npm run arc42:pdf` | PDF da entrega em `dist/arc42/arc42.pdf`: o arc42 com o C4, o Canvas e os prints em anexo e os diagramas desenhados (usa o Chrome em modo headless; sem internet, `MERMAID_JS=<mermaid.min.js local>`) |

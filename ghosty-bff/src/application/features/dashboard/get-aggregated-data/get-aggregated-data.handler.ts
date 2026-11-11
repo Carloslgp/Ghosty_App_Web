@@ -81,7 +81,8 @@ async function optional<T>(call: Promise<T>): Promise<T | null> {
  * `GET /aggregated-data`: o painel da área de segurança em um único JSON.
  * 1. Em paralelo: o resumo das notas (notes-service) e o resumo da segurança (safety-service).
  * 2. Com os dois resumos: a prontidão calculada pela Function.
- * Cada chamada tem o limite de tempo do cliente HTTP (3 s). Uma fonte fora do ar não derruba a
+ * Cada chamada tem o limite de tempo do cliente HTTP (`UPSTREAM_TIMEOUT_MS`: 3 s na máquina local, 60 s
+ * na Azure, onde os serviços acordam do zero). Uma fonte que falha não derruba a
  * resposta: o bloco dela vem `null` e `sources` diz o que faltou. Sem a Function, a prontidão é a de
  * reserva, calculada aqui (`sources.readiness = "fallback"`).
  */

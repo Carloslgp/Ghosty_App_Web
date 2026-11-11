@@ -7,6 +7,9 @@ import { z } from 'zod';
 import { useAuth } from '../auth/AuthProvider';
 import styles from './pages.module.css';
 
+/** 429 do BFF (limite de tentativas por minuto): não é senha errada, é só esperar. */
+const TOO_MANY = 'Muitas tentativas seguidas. Espere um minuto e tente de novo.';
+
 const loginSchema = z.object({
   email: z.email('Informe um e-mail válido'),
   password: z.string().min(1, 'Informe a senha'),
@@ -31,8 +34,9 @@ export function LoginPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     setFailed(null);
     try {
-      if ((await login(values.email, values.password)) === 'ok') await navigate('/', { replace: true });
-      else setFailed('E-mail ou senha incorretos.');
+      const result = await login(values.email, values.password);
+      if (result === 'ok') await navigate('/', { replace: true });
+      else setFailed(result === 'rate-limited' ? TOO_MANY : 'E-mail ou senha incorretos.');
     } catch {
       setFailed('Não foi possível entrar agora. Tente de novo em instantes.');
     }
@@ -80,7 +84,9 @@ export function RegisterPage() {
   const onSubmit = form.handleSubmit(async (values) => {
     setFailed(null);
     try {
-      if ((await register(values)) === 'ok') await navigate('/', { replace: true });
+      const result = await register(values);
+      if (result === 'ok') await navigate('/', { replace: true });
+      else if (result === 'rate-limited') setFailed(TOO_MANY);
       else form.setError('email', { message: 'Já existe uma conta com este e-mail.' });
     } catch {
       setFailed('Não foi possível criar a conta agora. Tente de novo em instantes.');

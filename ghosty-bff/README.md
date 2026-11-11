@@ -101,7 +101,7 @@ npm run start:dev       # porta 3000 · Swagger em http://localhost:3000/docs
 | `NOTES_SERVICE_URL` · `SAFETY_SERVICE_URL` · `INTERNAL_API_KEY` | `http://localhost:3001` · `http://localhost:3002` · `dev-internal-key` | Serviços internos e a chave do `X-Internal-Key` |
 | `FUNCTIONS_BASE_URL` · `FUNCTIONS_KEY` | `http://localhost:7071` · vazia | Azure Function (prontidão e prévia) |
 | `SAFETY_REMOTE_URL` | `http://localhost:5175/remoteEntry.js` | Remote `safety`, devolvido no desbloqueio |
-| `UPSTREAM_TIMEOUT_MS` | `3000` | Timeout de cada chamada interna (também o limite de cada fonte do painel) |
+| `UPSTREAM_TIMEOUT_MS` | `3000` | Timeout de cada chamada interna (também o limite de cada fonte do painel). Na Azure, 60000: os serviços escalam a zero e o Azure SQL pausa, e o primeiro acesso espera o serviço acordar em vez de falhar |
 | `APP_TIMEZONE` | `America/Sao_Paulo` | Fuso do painel ("lembretes de hoje") e da hora na prévia da mensagem |
 | `RATE_LIMIT_LOGIN_PER_MINUTE` · `RATE_LIMIT_USER_PER_MINUTE` | `5` · `60` | Login/cadastro por IP · requisições por usuário |
 

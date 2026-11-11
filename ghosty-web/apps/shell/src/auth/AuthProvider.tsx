@@ -14,12 +14,13 @@ export interface AuthContextValue {
   status: AuthStatus;
   user: SessionUser | null;
   api: ApiClient;
-  login: (email: string, password: string) => Promise<'ok' | 'invalid'>;
+  /** `invalid`: e-mail ou senha errados (401). `rate-limited`: tentativas demais (429). Outros erros lançam. */
+  login: (email: string, password: string) => Promise<'ok' | 'invalid' | 'rate-limited'>;
   register: (input: {
     displayName: string;
     email: string;
     password: string;
-  }) => Promise<'ok' | 'email-in-use'>;
+  }) => Promise<'ok' | 'email-in-use' | 'rate-limited'>;
   logout: () => Promise<void>;
   /** Esquece a sessão sem chamar o BFF (conta apagada). */
   forget: () => void;
@@ -168,10 +169,14 @@ export function AuthProvider({ config, children }: { config: ShellConfig; childr
       user,
       api,
       async login(email, password) {
-        const { data } = await bare.POST('/auth/login', { body: { email, password } });
-        if (!data) return 'invalid';
-        apply(data);
-        return 'ok';
+        const { data, response } = await bare.POST('/auth/login', { body: { email, password } });
+        if (data) {
+          apply(data);
+          return 'ok';
+        }
+        if (response.status === 401) return 'invalid';
+        if (response.status === 429) return 'rate-limited';
+        throw new Error('Não foi possível entrar agora.');
       },
       async register(input) {
         const { data, response } = await bare.POST('/auth/register', { body: input });
@@ -180,6 +185,7 @@ export function AuthProvider({ config, children }: { config: ShellConfig; childr
           return 'ok';
         }
         if (response.status === 409) return 'email-in-use';
+        if (response.status === 429) return 'rate-limited';
         throw new Error('Não foi possível criar a conta agora.');
       },
       async logout() {

@@ -5,9 +5,12 @@
 export function registerServiceWorker(notesRemoteUrl: string): void {
   if (!import.meta.env.PROD || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
   const notesOrigin = new URL(notesRemoteUrl, window.location.href).origin;
-  window.addEventListener('load', () => {
+  const register = () =>
     void navigator.serviceWorker
       .register(`/sw.js?notes=${encodeURIComponent(notesOrigin)}`, { scope: '/' })
       .catch(() => undefined);
-  });
+  // O bootstrap chega por import dinâmico (Module Federation): quase sempre depois do `load`, que então
+  // nunca mais dispara. Por isso, com a página já carregada, registra na hora.
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, { once: true });
 }

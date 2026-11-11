@@ -84,6 +84,27 @@ describe('shell', () => {
     expect(await screen.findByText('E-mail ou senha incorretos.')).toBeInTheDocument();
   });
 
+  it('tentativas demais (429) pedem para esperar, e serviço fora do ar não vira "senha incorreta"', async () => {
+    let status = 429;
+    server.use(
+      http.post(`${API}/auth/login`, () =>
+        HttpResponse.json(
+          { code: status === 429 ? 'RATE_LIMITED' : 'UPSTREAM_UNAVAILABLE', status },
+          { status },
+        ),
+      ),
+    );
+    renderAt('/entrar');
+    await userEvent.type(await screen.findByLabelText('E-mail'), 'x@example.com');
+    await userEvent.type(screen.getByLabelText('Senha'), 'qualquer');
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText(/Muitas tentativas seguidas/)).toBeInTheDocument();
+    status = 503;
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    expect(await screen.findByText(/Não foi possível entrar agora/)).toBeInTheDocument();
+    expect(screen.queryByText('E-mail ou senha incorretos.')).not.toBeInTheDocument();
+  });
+
   it('criar conta valida os campos e mostra e-mail já cadastrado no campo', async () => {
     server.use(
       http.post(`${API}/auth/register`, () =>

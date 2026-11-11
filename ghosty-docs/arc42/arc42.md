@@ -305,7 +305,7 @@ Cada projeto valida as variáveis de ambiente com `zod` na subida e lista o que 
 | Oferta "Starter" sem free tier do Azure SQL | Checagem no passo `check`; pedir a oferta com crédito |
 | Policy de regiões bloqueando um serviço | Uma região para tudo; planos B para a Function e o front |
 | Franquia do Azure SQL acabar | Pool com mínimo 0, health sem banco, pausa automática |
-| Cold start na apresentação | Esquentar antes; mínimo de 1 réplica durante a gravação |
+| Cold start: os serviços escalam a zero (cerca de 25 s para acordar) e o Azure SQL pausa | Na Azure, o BFF espera até 60 s por serviço (`UPSTREAM_TIMEOUT_MS`) em vez de responder 503: o primeiro acesso fica lento, mas funciona. Antes de apresentar, abrir o app uma vez (ou rodar `deploy.sh smoke`) |
 | Atlas Free pausado | Conferir antes de apresentar |
 | Revogação da sessão segura só em memória | Basta para 1 réplica do BFF; com mais réplicas, passa para o safety-service |
 | Página do contato (canal web) só mostra avisos aberta | Recomendar o Telegram; Web Push registrado como recurso desligado |

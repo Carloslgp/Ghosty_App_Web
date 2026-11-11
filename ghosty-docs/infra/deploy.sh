@@ -444,7 +444,9 @@ step_containerapps() {
   # O Swagger do BFF aponta para o API Gateway, que é por onde o front chama (o passo cross acerta depois).
   if exists az apim show -g "$RG" -n "$APIM"; then docs_server="$(api_base_url)"; fi
   ca_secrets "$APP_BFF" gateway-secret jwt-private-key internal-api-key functions-key
-  ca_env "$APP_BFF" ghosty-bff NODE_ENV=production PORT=3000 LOG_LEVEL=info \
+  # UPSTREAM_TIMEOUT_MS de 60 s (3 s na máquina local): os serviços escalam a zero (~25 s para acordar) e o
+  # Azure SQL pausa; o primeiro acesso depois de um tempo parado espera o serviço em vez de falhar com 503.
+  ca_env "$APP_BFF" ghosty-bff NODE_ENV=production PORT=3000 LOG_LEVEL=info UPSTREAM_TIMEOUT_MS=60000 \
     PUBLIC_BASE_URL="https://$(fqdn "$APP_BFF")" CORS_ORIGINS=none TRUST_PROXY_HOPS=2 \
     GATEWAY_SECRET=secretref:gateway-secret JWT_PRIVATE_KEY_PEM_B64=secretref:jwt-private-key JWT_KEY_ID=nuvem-1 \
     NOTES_SERVICE_URL="http://$APP_NOTES" SAFETY_SERVICE_URL="http://$APP_CORE" \

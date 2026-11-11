@@ -66,11 +66,16 @@ export function useAggregatedData(geo: GeoPermission) {
   });
 }
 
+export const CONTACTS_POLL_MS = 10_000;
+
 export function useContacts() {
   const api = useApi();
   return useQuery({
     queryKey: keys.contacts,
     queryFn: async () => unwrap(await api.GET('/safety/contacts')).items,
+    // Enquanto houver convite pendente, a tela acompanha a resposta do contato sem precisar sair dela.
+    refetchInterval: (query) =>
+      query.state.data?.some((contact) => contact.status === 'pending') ? CONTACTS_POLL_MS : false,
   });
 }
 
