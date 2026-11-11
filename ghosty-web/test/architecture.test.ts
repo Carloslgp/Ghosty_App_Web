@@ -2,6 +2,7 @@
 // cada app é independente, o shell só conhece os remotes em tempo de execução (Module Federation)
 // e só o pacote api-client fala com a rede, sempre com o BFF.
 import { projectFiles, type CheckOptions, type FileInfo } from 'archunit';
+import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -125,6 +126,44 @@ describe('Arquitetura: acesso ao backend', SLOW, () => {
       .should()
       .adhereTo(withoutNetworkCalls, 'apps não chamam fetch, XMLHttpRequest, WebSocket nem EventSource');
     await expect(rule).toPassAsync(STRICT);
+  });
+});
+
+/** As chaves do bloco `shared` (ou do `SHARED` do shell) no vite.config.ts de um app. */
+function sharedOf(name: string): string[] {
+  const text = readFileSync(`apps/${name}/vite.config.ts`, 'utf8');
+  const start = text.search(/shared: \{|SHARED = \{/);
+  if (start < 0) return [];
+  let depth = 0;
+  let end = text.indexOf('{', start);
+  for (let i = end; i < text.length; i += 1) {
+    if (text[i] === '{') depth += 1;
+    if (text[i] === '}') depth -= 1;
+    if (depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  const block = text.slice(text.indexOf('{', start) + 1, end);
+  return [...block.matchAll(/(?:'([^']+)'|([A-Za-z][\w-]*))\s*:\s*\{/g)].map(
+    (match) => match[1] ?? match[2] ?? '',
+  );
+}
+
+describe('Arquitetura: Module Federation', () => {
+  it('react, react-dom e react-query são um só (singleton) no shell e nos dois remotes', () => {
+    for (const name of ['shell', 'notes', 'safety']) {
+      expect(sharedOf(name), name).toEqual(
+        expect.arrayContaining(['react', 'react-dom', '@tanstack/react-query']),
+      );
+    }
+  });
+
+  it('a fachada usa o roteador do shell, e a área segura tem o próprio (MemoryRouter, sem compartilhar)', () => {
+    expect(sharedOf('shell')).toContain('react-router');
+    expect(sharedOf('notes')).toContain('react-router');
+    // Compartilhado, o MemoryRouter do safety enxergaria o roteador do shell e a área ficaria em branco.
+    expect(sharedOf('safety')).not.toContain('react-router');
   });
 });
 

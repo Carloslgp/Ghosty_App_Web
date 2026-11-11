@@ -340,6 +340,7 @@ step_functions() {
     "DELIVERY_MODE=$(delivery_mode)"
     "TELEGRAM_BOT_USERNAME=$(bot_username)"
     "QUEUE_ALERT_DISPATCHES=alert-dispatches"
+    "OPENAPI_SERVER_URL=https://$(fn_host)"
   )
   if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
     settings+=("TELEGRAM_BOT_TOKEN=@Microsoft.KeyVault(SecretUri=$(kv_uri telegram-bot-token))")
@@ -424,7 +425,8 @@ step_containerapps() {
 
   ca_secrets "$APP_NOTES" mongodb-uri internal-api-key
   ca_env "$APP_NOTES" ghosty-notes-service NODE_ENV=production PORT=3001 LOG_LEVEL=info MONGODB_DB=notes \
-    MONGODB_URI=secretref:mongodb-uri INTERNAL_API_KEY=secretref:internal-api-key
+    MONGODB_URI=secretref:mongodb-uri INTERNAL_API_KEY=secretref:internal-api-key \
+    OPENAPI_SERVER_URL="https://$(fqdn "$APP_NOTES")"
 
   local invite_base="https://example.invalid/c"
   if exists az staticwebapp show -g "$RG" -n "$SWA_MAIN"; then invite_base="$(swa_url "$SWA_MAIN")/c"; fi
@@ -434,17 +436,20 @@ step_containerapps() {
     MSSQL_PASSWORD=secretref:mssql-password DATA_ENCRYPTION_KEY=secretref:data-encryption-key \
     INTERNAL_API_KEY=secretref:internal-api-key QUEUE_CONNECTION_STRING=secretref:storage-connection-string \
     MESSAGING_ENABLED=true INVITE_BASE_URL="$invite_base" TELEGRAM_BOT_USERNAME="$(bot_username)" \
-    APP_TIMEZONE=America/Sao_Paulo
+    APP_TIMEZONE=America/Sao_Paulo OPENAPI_SERVER_URL="https://$(fqdn "$APP_CORE")"
 
-  local remote="https://example.invalid/remoteEntry.js"
+  local remote="https://example.invalid/remoteEntry.js" docs_server="https://$(fqdn "$APP_BFF")"
   if exists az staticwebapp show -g "$RG" -n "$SWA_SAFETY"; then remote="$(swa_url "$SWA_SAFETY")/remoteEntry.js"; fi
+  # O Swagger do BFF aponta para o API Gateway, que é por onde o front chama (o passo cross acerta depois).
+  if exists az apim show -g "$RG" -n "$APIM"; then docs_server="$(api_base_url)"; fi
   ca_secrets "$APP_BFF" gateway-secret jwt-private-key internal-api-key functions-key
   ca_env "$APP_BFF" ghosty-bff NODE_ENV=production PORT=3000 LOG_LEVEL=info \
     PUBLIC_BASE_URL="https://$(fqdn "$APP_BFF")" CORS_ORIGINS=none TRUST_PROXY_HOPS=2 \
     GATEWAY_SECRET=secretref:gateway-secret JWT_PRIVATE_KEY_PEM_B64=secretref:jwt-private-key JWT_KEY_ID=nuvem-1 \
     NOTES_SERVICE_URL="http://$APP_NOTES" SAFETY_SERVICE_URL="http://$APP_CORE" \
     INTERNAL_API_KEY=secretref:internal-api-key FUNCTIONS_BASE_URL="https://$(fn_host)" \
-    FUNCTIONS_KEY=secretref:functions-key SAFETY_REMOTE_URL="$remote" APP_TIMEZONE=America/Sao_Paulo
+    FUNCTIONS_KEY=secretref:functions-key SAFETY_REMOTE_URL="$remote" APP_TIMEZONE=America/Sao_Paulo \
+    OPENAPI_SERVER_URL="$docs_server"
 
   for app in "$APP_BFF" "$APP_NOTES" "$APP_CORE"; do info "https://$(fqdn "$app")/docs"; done
 }
@@ -548,7 +553,7 @@ step_cross() {
   retry az containerapp update -g "$RG" -n "$APP_CORE" --set-env-vars "INVITE_BASE_URL=$main/c" --only-show-errors --output none
   retry az containerapp update -g "$RG" -n "$APP_BFF" --set-env-vars \
     "PUBLIC_BASE_URL=https://$(fqdn "$APP_BFF")" "SAFETY_REMOTE_URL=$safety_remote" \
-    "FUNCTIONS_BASE_URL=https://$(fn_host)" --only-show-errors --output none
+    "FUNCTIONS_BASE_URL=https://$(fn_host)" "OPENAPI_SERVER_URL=$(api_base_url)" --only-show-errors --output none
   az functionapp config appsettings set -g "$RG" -n "$FN" \
     --settings "SAFETY_SERVICE_URL=https://$(fqdn "$APP_CORE")" --only-show-errors --output none
 

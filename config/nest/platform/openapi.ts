@@ -75,6 +75,16 @@ export interface OpenApiOptions {
   version: string;
   /** Acrescenta esquemas de segurança, servidores etc. */
   configure?: (builder: DocumentBuilder) => DocumentBuilder;
+  /** Substitui os servidores do `configure` (na nuvem, o endereço público no lugar do localhost). */
+  servers?: { url: string; description: string }[];
+}
+
+/**
+ * Na nuvem, o Swagger mostra só o endereço público (`OPENAPI_SERVER_URL`), e não o localhost do contrato.
+ * Sem a URL (máquina local e `openapi:export`), o documento continua igual ao contrato.
+ */
+export function withPublicServer(options: OpenApiOptions, url: string, description: string): OpenApiOptions {
+  return url ? { ...options, servers: [{ url: url.replace(/\/+$/, ''), description }] } : options;
 }
 
 export function buildOpenApi(app: INestApplication, options: OpenApiOptions): OpenAPIObject {
@@ -83,7 +93,9 @@ export function buildOpenApi(app: INestApplication, options: OpenApiOptions): Op
     .setDescription(options.description)
     .setVersion(options.version);
   if (options.configure) builder = options.configure(builder);
-  return SwaggerModule.createDocument(app, builder.build());
+  const config = builder.build();
+  if (options.servers) config.servers = options.servers;
+  return SwaggerModule.createDocument(app, config);
 }
 
 export function setupSwagger(app: INestApplication, document: OpenAPIObject): void {

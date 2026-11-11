@@ -1,3 +1,4 @@
+| `OPENAPI_SERVER_URL` | vazia | Servidor mostrado no Swagger (na Azure, `https://<function app>.azurewebsites.net`); vazia, vale o localhost do contrato |
 # ghosty-functions
 
 Azure Functions do Ghosty: cálculo, enriquecimento de dados e processamento de eventos.

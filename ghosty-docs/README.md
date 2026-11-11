@@ -2,7 +2,7 @@
 
 Documentação e infraestrutura do Ghosty.
 
-> **Status:** contratos (4 OpenAPI e o AsyncAPI) com mocks e validação no CI, C4, rascunho do arc42, políticas do API Management, implantação na Azure por script, desenvolvimento local com um comando e o teste de ponta a ponta.
+> **Status:** contratos (4 OpenAPI e o AsyncAPI) com mocks e validação no CI, C4, arc42 com o Canvas e os prints da nuvem em anexo, políticas do API Management, implantação na Azure por script, desenvolvimento local com um comando e o teste de ponta a ponta.
 
 ## Sobre o Ghosty
 
@@ -35,17 +35,18 @@ flowchart LR
 contracts/   contratos OpenAPI do BFF, do notes-service, do safety-service e das functions
 asyncapi/    especificação dos eventos (AsyncAPI 3.0), JSON Schemas e mensagens de exemplo
 c4/          diagramas C4: contexto, containers e componentes (Mermaid)
-arc42/       documentação de arquitetura (exportada em PDF para a entrega)
+arc42/       documentação de arquitetura (exportada em PDF para a entrega) e os prints da nuvem (arc42/prints)
+canvas/      Lean Canvas do produto (HTML, PNG e PDF)
 apim/        políticas do Azure API Management (XML) e os named values
 infra/       implantação na Azure com o Azure CLI (deploy.sh), por passos
 compose/     docker compose para rodar tudo com containers (quando houver Docker)
-scripts/     desenvolvimento local, teste de ponta a ponta, página de documentação e fumaça dos mocks
+scripts/     desenvolvimento local, teste de ponta a ponta, página de documentação, prints, Canvas e fumaça dos mocks
 test/        validação dos contratos (convenções, AsyncAPI e exemplos com ajv)
 ```
 
 - [Contratos de API, convenções e guia dos mocks](contracts/README.md)
 - [Eventos (AsyncAPI)](asyncapi/README.md)
-- [C4 Model](c4/README.md) · [arc42](arc42/arc42.md)
+- [C4 Model](c4/README.md) · [arc42](arc42/arc42.md) · [Canvas](canvas/canvas.png)
 - [Políticas do API Management](apim/README.md) · [Implantação na Azure](infra/README.md)
 
 ## Como rodar localmente
@@ -67,7 +68,9 @@ npm run mock:all     # mocks: BFF :4010 · notes-service :4011 · safety-service
 | `npm run e2e:local` | Teste de ponta a ponta com os serviços reais (precisa do build dos 4 backends) |
 | `npm run asyncapi:html` | HTML navegável dos eventos em `site/events` (gerador oficial, baixado pelo `npx`) |
 | `npm run site:build` | Página de documentação em `site/` (links, Swagger UI de cada API e os eventos) |
-| `npm run arc42:pdf` | PDF da entrega em `dist/arc42/arc42.pdf`: o arc42 com o C4 em anexo e os diagramas desenhados (usa o Chrome em modo headless; sem internet, `MERMAID_JS=<mermaid.min.js local>`) |
+| `npm run arc42:pdf` | PDF da entrega em `dist/arc42/arc42.pdf`: o arc42 com o C4, o Canvas e os prints em anexo e os diagramas desenhados (usa o Chrome em modo headless; sem internet, `MERMAID_JS=<mermaid.min.js local>`) |
+| `npm run prints` | Prints da entrega em `arc42/prints/`, tirados das URLs da nuvem (tabela "Links da entrega" do arc42): Swaggers, AsyncAPI, API Gateway, front na conta de demonstração, Docker Hub e GitHub Actions. Precisa de `DEMO_PASSWORD` e `DEMO_LOCK_CODE` (ou `AZURE_ENV_FILE=infra/azure.env`); `PRINTS_ONLY=front,swagger` tira só alguns |
+| `npm run canvas` | Desenha o `canvas/canvas.html` em `canvas/canvas.png` e `canvas/canvas.pdf` (A4 deitado) |
 | `npm run format` | Formata YAML, JSON e scripts com o Prettier |
 
 ### Tudo de uma vez na máquina local
@@ -76,7 +79,7 @@ npm run mock:all     # mocks: BFF :4010 · notes-service :4011 · safety-service
 bash scripts/dev-local.sh --install   # na primeira vez (npm ci nos 6 projetos); depois, sem --install
 ```
 
-Sobe filas (Azurite), safety-service (SQLite), notes-service (MongoDB em memória), Functions, BFF e o front (5173, 5174 e 5175) num terminal só, e cria os `.env` a partir dos exemplos na primeira vez. As Functions sobem com o `func start` se o Core Tools estiver instalado; sem ele, com o host local de testes.
+Sobe filas (Azurite), safety-service (SQLite), notes-service (MongoDB em memória), Functions, BFF e o front (5173, 5174 e 5175) num terminal só, e cria os `.env` a partir dos exemplos na primeira vez. As Functions sobem com o `func start` se o Core Tools estiver instalado; sem ele, com o host local de testes. Funciona no Linux, no macOS e no Git Bash do Windows. Abra http://localhost:5173, crie uma conta, defina o código em Configurações e digite-o na busca para abrir a área segura.
 
 ### Teste de ponta a ponta
 
@@ -106,6 +109,8 @@ A [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.ne
 | Swagger da Azure Function | https://func-notas-oigv.azurewebsites.net/api/docs |
 | Documentação dos eventos (AsyncAPI) | https://proud-field-09986c10f.3.azurestaticapps.net/events/ |
 | Imagens no Docker Hub | https://hub.docker.com/u/oldspiffy |
+| Canvas | [canvas/canvas.png](canvas/canvas.png) · [canvas/canvas.pdf](canvas/canvas.pdf) |
+| Prints da nuvem | [anexo do arc42](arc42/arc42.md#anexo-prints-do-app-na-azure) |
 | Vídeo no YouTube | — |
 
 ## Projetos do repositório

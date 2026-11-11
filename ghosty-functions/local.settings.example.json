@@ -7,6 +7,7 @@
     "SAFETY_SERVICE_URL": "http://localhost:3002",
     "INTERNAL_API_KEY": "dev-internal-key",
     "SAFETY_TIMEOUT_MS": "5000",
+    "OPENAPI_SERVER_URL": "",
     "APP_TIMEZONE": "America/Sao_Paulo",
     "DELIVERY_MODE": "simulated",
     "TELEGRAM_BOT_TOKEN": "",

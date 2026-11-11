@@ -5,6 +5,7 @@ import { appOptionsFrom } from './app-options.js';
 import { AppModule } from './app.module.js';
 import { OPENAPI } from './openapi.config.js';
 import { configureApp, exitWithConfigError, loadDotEnv } from './platform/bootstrap.js';
+import { withPublicServer } from './platform/openapi.js';
 import { configureHttp } from './shared/http-setup.js';
 
 async function bootstrap(): Promise<void> {
@@ -18,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule.forRoot(appOptionsFrom(env)), { bufferLogs: true });
   configureHttp(app, { corsOrigins: env.CORS_ORIGINS, trustProxyHops: env.TRUST_PROXY_HOPS });
-  configureApp(app, OPENAPI);
+  configureApp(app, withPublicServer(OPENAPI, env.OPENAPI_SERVER_URL, 'API Gateway (Azure API Management)'));
   await app.listen(env.PORT);
   const notes = [
     env.JWT_PRIVATE_KEY_PEM_B64 ? '' : 'chave JWT temporária',

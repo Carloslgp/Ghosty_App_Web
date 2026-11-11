@@ -16,6 +16,7 @@
     "concurrently": "^10.0.7",
     "marked": "^16.4.2",
     "prettier": "^3.9.10",
+    "puppeteer-core": "^25.16.0",
     "vitest": "^5.1.0",
     "yaml": "^2.9.1"
   },
@@ -34,6 +35,8 @@
     "asyncapi:html": "node scripts/asyncapi-html.mjs",
     "site:build": "node scripts/build-site.mjs",
     "e2e:local": "bash scripts/e2e-local.sh",
-    "arc42:pdf": "node scripts/arc42-pdf.mjs"
+    "arc42:pdf": "node scripts/arc42-pdf.mjs",
+    "prints": "node scripts/prints.mjs",
+    "canvas": "node scripts/canvas.mjs"
   }
 }

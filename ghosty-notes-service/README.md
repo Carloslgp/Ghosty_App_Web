@@ -1,3 +1,4 @@
+| `OPENAPI_SERVER_URL` | vazia | Servidor mostrado no Swagger (na Azure, a URL do Container App); vazia, vale o localhost do contrato |
 # ghosty-notes-service
 
 Microserviço do domínio **Notas** do Ghosty, com MongoDB Atlas.
@@ -124,7 +125,7 @@ Roda no Azure Container Apps (`app-notes`), com o MongoDB Atlas num cluster em r
 |---|---|
 | Swagger (direto no Container App) | https://app-notes.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
 | Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-notes-service |
-| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-notes-service (tag `v1`) |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-notes-service (tags `v1` e `v1.1`; a `v1.1` roda na Azure) |
 
 Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 

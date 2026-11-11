@@ -33,13 +33,21 @@ const slug = (text) =>
     .trim()
     .replace(/\s/g, '-');
 
-export function buildDocument({ arc42, c4 }) {
-  const body = arc42
+/**
+ * Monta o HTML do PDF: o arc42, o C4 como anexo logo depois da seção 12 e, em seguida, os outros anexos
+ * do arc42.md (Canvas e prints). Imagens com caminho relativo são resolvidas a partir de `baseDir` (a
+ * pasta do arc42.md), porque o HTML impresso fica em outra pasta.
+ */
+export function buildDocument({ arc42, c4, baseDir = path.join(docs, 'arc42') }) {
+  const cleaned = arc42
     // A nota de como gerar o PDF não faz sentido dentro do próprio PDF.
     .replace(/^> Para gerar o PDF\b.*\n\n?/m, '')
     // Os links para o C4 passam a apontar para o anexo, dentro do mesmo documento.
     .replace(/\(\.\.\/c4\/README\.md#([^)]+)\)/g, '(#c4-$1)')
     .replace(/\(\.\.\/c4\/README\.md\)/g, '(#anexo-c4-model)');
+  const split = cleaned.search(/^## Anexo/m);
+  const body = split < 0 ? cleaned : cleaned.slice(0, split);
+  const extras = split < 0 ? '' : cleaned.slice(split);
   // O C4 entra como anexo: os títulos descem um nível e ganham o prefixo "c4-" nas âncoras.
   const annex = c4
     .replace(/^# C4 Model\n/m, '')
@@ -55,7 +63,14 @@ export function buildDocument({ arc42, c4 }) {
       },
       heading({ tokens, depth }) {
         const text = this.parser.parseInline(tokens);
-        return `<h${depth} id="${slug(text)}">${text}</h${depth}>\n`;
+        const annexClass = depth === 2 && text.startsWith('Anexo') ? ' class="annex"' : '';
+        return `<h${depth} id="${slug(text)}"${annexClass}>${text}</h${depth}>\n`;
+      },
+      image({ href, text }) {
+        const src = /^[a-z][a-z0-9+.-]*:/i.test(href)
+          ? href
+          : pathToFileURL(path.resolve(baseDir, href)).href;
+        return `<figure><img src="${escape(src)}" alt="${escape(text)}"><figcaption>${escape(text)}</figcaption></figure>`;
       },
     },
   });
@@ -63,7 +78,7 @@ export function buildDocument({ arc42, c4 }) {
   const anexo = marked
     .parse(annex)
     .replace(/<h(\d) id="([^"]+)">/g, (_, depth, id) => `<h${depth} id="c4-${id}">`);
-  return `${main}\n<h2 id="anexo-c4-model" class="annex">Anexo: C4 Model</h2>\n${anexo}`;
+  return `${main}\n<h2 id="anexo-c4-model" class="annex">Anexo: C4 Model</h2>\n${anexo}\n${marked.parse(extras)}`;
 }
 
 export function htmlPage({ title, content, mermaidSrc }) {
@@ -91,6 +106,9 @@ export function htmlPage({ title, content, mermaidSrc }) {
   blockquote { margin: 6pt 0; padding: 2pt 10pt; border-left: 3pt solid #ccc; color: #444; }
   a { color: #0b57d0; text-decoration: none; word-break: break-all; }
   hr { display: none; }
+  figure { margin: 6pt 0 12pt; break-inside: avoid; text-align: center; }
+  figure img { max-width: 100%; max-height: 225mm; border: 1px solid #ccc; }
+  figcaption { font-size: 8.5pt; color: #555; margin-top: 3pt; }
 </style>
 <script src="${escape(mermaidSrc)}"></script>
 </head>

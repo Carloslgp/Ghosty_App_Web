@@ -14,10 +14,12 @@ export default defineConfig({
       name: 'safety',
       filename: 'remoteEntry.js',
       exposes: { './App': './src/App.tsx', './Invite': './src/Invite.tsx' },
+      // Sem o `react-router` compartilhado: a área segura tem o próprio `MemoryRouter`, e com a cópia do
+      // shell ela enxergaria o roteador dele ("You cannot render a <Router> inside another <Router>") e
+      // ficaria em branco. Com a própria cópia, a navegação interna nunca toca na URL nem no histórico.
       shared: {
         react: { singleton: true },
         'react-dom': { singleton: true },
-        'react-router': { singleton: true },
         '@tanstack/react-query': { singleton: true },
       },
       dts: false,

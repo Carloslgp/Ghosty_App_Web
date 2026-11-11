@@ -70,7 +70,7 @@ export function ReadinessCard({ data }: { data: AggregatedData }) {
       {sources.readiness === 'fallback' && (
         <Banner tone="warning">Cálculo simplificado: o serviço de prontidão não respondeu agora.</Banner>
       )}
-      <ul className={styles.items}>
+      <ul className={`${styles.items} ${styles.marked}`}>
         {readiness.items.map((item) => (
           <li key={item.id} data-ok={item.ok}>
             <span aria-hidden="true">{item.ok ? '✓' : '•'}</span> {item.text}

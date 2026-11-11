@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AppModule } from '../../src/api/app.module.js';
 import { OPENAPI } from '../../src/api/openapi.config.js';
 import { configureApp } from '../../src/api/platform/bootstrap.js';
+import { buildOpenApi, withPublicServer } from '../../src/api/platform/openapi.js';
 
 const KEY = 'test-internal-key';
 const OWNER = '01a15965-b480-79af-a113-29b2fc82e5ef';
@@ -308,6 +309,19 @@ describe('notes-service (HTTP + MongoDB em memória)', () => {
       expect(byName.owner_list?.key).toEqual({ ownerId: 1, archived: 1, pinned: -1, updatedAt: -1 });
       expect(byName.owner_labels?.key).toEqual({ ownerId: 1, labels: 1 });
       expect(byName.owner_reminders?.partialFilterExpression).toEqual({ reminderAt: { $exists: true } });
+    });
+
+    it('o Swagger mostra o localhost do contrato, ou só o endereço público quando OPENAPI_SERVER_URL existe', async () => {
+      const local = await http().get('/docs-json').expect(200);
+      expect(local.body.servers).toEqual([{ url: 'http://localhost:3001', description: 'Máquina local' }]);
+      const cloud = buildOpenApi(
+        app,
+        withPublicServer(OPENAPI, 'https://app-notes.example.azurecontainerapps.io/', 'Azure Container Apps'),
+      );
+      expect(cloud.servers).toEqual([
+        { url: 'https://app-notes.example.azurecontainerapps.io', description: 'Azure Container Apps' },
+      ]);
+      expect(withPublicServer(OPENAPI, '', 'Azure Container Apps')).toBe(OPENAPI);
     });
 
     it('expõe o Swagger em /docs e o OpenAPI em /docs-json com as operações do contrato', async () => {

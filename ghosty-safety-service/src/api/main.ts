@@ -5,6 +5,7 @@ import { appOptionsFrom } from './app-options.js';
 import { AppModule } from './app.module.js';
 import { OPENAPI } from './openapi.config.js';
 import { configureApp, exitWithConfigError, loadDotEnv } from './platform/bootstrap.js';
+import { withPublicServer } from './platform/openapi.js';
 
 async function bootstrap(): Promise<void> {
   loadDotEnv();
@@ -16,7 +17,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const app = await NestFactory.create(AppModule.forRoot(appOptionsFrom(env)), { bufferLogs: true });
-  configureApp(app, OPENAPI);
+  configureApp(app, withPublicServer(OPENAPI, env.OPENAPI_SERVER_URL, 'Azure Container Apps'));
   await app.listen(env.PORT);
   process.stdout.write(
     `safety-service na porta ${env.PORT} (${env.DB_PROVIDER}, filas ${env.MESSAGING_ENABLED ? 'ligadas' : 'desligadas'}) · Swagger em /docs\n`,

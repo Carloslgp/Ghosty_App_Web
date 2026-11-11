@@ -94,6 +94,15 @@ describe('Funções HTTP', () => {
     expect(page.body).toContain('swagger-ui-dist@5.34.1');
     expect(page.body).toContain("url: 'openapi.json'");
   });
+
+  it('openapi.json mostra o localhost do contrato, ou só o endereço público com OPENAPI_SERVER_URL', () => {
+    type Doc = { servers: { url: string; description: string }[] };
+    expect((openApiJson('').jsonBody as Doc).servers[0]?.url).toBe('http://localhost:7071');
+    expect((openApiJson('não é url').jsonBody as Doc).servers[0]?.url).toBe('http://localhost:7071');
+    expect((openApiJson('https://func-notas.azurewebsites.net/').jsonBody as Doc).servers).toEqual([
+      { url: 'https://func-notas.azurewebsites.net', description: 'Azure Functions' },
+    ]);
+  });
 });
 
 describe('Gatilhos de fila com o Azurite', () => {

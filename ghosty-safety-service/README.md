@@ -1,3 +1,4 @@
+| `OPENAPI_SERVER_URL` | vazia | Servidor mostrado no Swagger (na Azure, a URL do Container App); vazia, vale o localhost do contrato |
 # ghosty-safety-service
 
 Microserviço do domínio **Conta e Rede de apoio** do Ghosty, com Azure SQL Database.
@@ -144,7 +145,7 @@ Roda no Azure Container Apps (`app-core`), com o Azure SQL (free tier, pausa aut
 |---|---|
 | Swagger (direto no Container App) | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
 | Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-safety-service |
-| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-safety-service (tag `v1`) |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-safety-service (tags `v1` e `v1.1`; a `v1.1` roda na Azure) |
 
 Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 

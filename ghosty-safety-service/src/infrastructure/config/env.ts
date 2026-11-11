@@ -13,6 +13,8 @@ const schema = z
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3002),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    /** Servidor mostrado no Swagger (na nuvem, o endereço do Container App). Vazio: o localhost do contrato. */
+    OPENAPI_SERVER_URL: z.url().or(z.literal('')).default(''),
 
     DB_PROVIDER: z.enum(['sqlite', 'mssql']).default('sqlite'),
     SQLITE_PATH: z.string().min(1).default('./data/safety.sqlite'),

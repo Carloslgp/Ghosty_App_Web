@@ -1,3 +1,4 @@
+| `OPENAPI_SERVER_URL` | vazia | Servidor mostrado no Swagger (na Azure, a URL do API Gateway); vazia, vale o localhost do contrato |
 # ghosty-bff
 
 Backend for Frontend (BFF) do Ghosty, em NestJS.
@@ -136,7 +137,7 @@ Roda no Azure Container Apps (`app-web-api`), atrás do API Management, com os s
 | Swagger (direto no Container App) | https://app-web-api.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
 | Swagger pelo API Gateway | https://proud-field-09986c10f.3.azurestaticapps.net/swagger.html?spec=apim-web-bff |
 | API Gateway | https://apim-notas-oigv.azure-api.net |
-| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-bff (tag `v1`) |
+| Imagem no Docker Hub | https://hub.docker.com/r/oldspiffy/ghosty-bff (tags `v1` e `v1.1`; a `v1.1` roda na Azure) |
 
 Todos os links da entrega ficam reunidos na [página de documentação](https://proud-field-09986c10f.3.azurestaticapps.net).
 

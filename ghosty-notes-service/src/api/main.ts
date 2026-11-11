@@ -5,6 +5,7 @@ import { startMemoryMongo, type MemoryMongo } from '../infrastructure/persistenc
 import { AppModule } from './app.module.js';
 import { OPENAPI } from './openapi.config.js';
 import { configureApp, exitWithConfigError, loadDotEnv } from './platform/bootstrap.js';
+import { withPublicServer } from './platform/openapi.js';
 
 async function bootstrap(): Promise<void> {
   loadDotEnv();
@@ -30,7 +31,7 @@ async function bootstrap(): Promise<void> {
     }),
     { bufferLogs: true },
   );
-  configureApp(app, OPENAPI);
+  configureApp(app, withPublicServer(OPENAPI, env.OPENAPI_SERVER_URL, 'Azure Container Apps'));
   await app.listen(env.PORT);
   process.stdout.write(
     `notes-service na porta ${env.PORT}${useMemory ? ' (MongoDB em memória)' : ''} · Swagger em /docs\n`,

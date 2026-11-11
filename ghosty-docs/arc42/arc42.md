@@ -20,8 +20,10 @@ Projeto acadêmico da disciplina de Soluções Cloud.
 | Swagger do safety-service | https://app-core.graybeach-32f9183a.brazilsouth.azurecontainerapps.io/docs |
 | Swagger da Azure Function | https://func-notas-oigv.azurewebsites.net/api/docs |
 | Swagger dos eventos (AsyncAPI) | https://proud-field-09986c10f.3.azurestaticapps.net/events/ |
-| Docker Hub: `ghosty-bff`, `ghosty-notes-service`, `ghosty-safety-service` | https://hub.docker.com/u/oldspiffy (tag `v1`) |
+| Docker Hub: `ghosty-bff`, `ghosty-notes-service`, `ghosty-safety-service` | https://hub.docker.com/u/oldspiffy (tags `v1` e `v1.1`; a `v1.1` é a que roda na Azure) |
 | Página com todos os links e Swaggers | https://proud-field-09986c10f.3.azurestaticapps.net |
+| Canvas | [Anexo: Canvas](#anexo-canvas) · [`canvas.pdf`](https://github.com/Carloslgp/Ghosty_App_Web/blob/main/ghosty-docs/canvas/canvas.pdf) |
+| Prints (Swaggers, frontend, API Gateway, Docker Hub, CI) | [Anexo: prints do app na Azure](#anexo-prints-do-app-na-azure) |
 | Vídeo (YouTube) | _preencher depois da gravação_ |
 
 O comando `bash ghosty-docs/infra/deploy.sh status` imprime todos os links do ambiente. O API Gateway exige a chave de assinatura (`Ocp-Apim-Subscription-Key`) do produto `web-app`, que já vai no front; os serviços são escalados a zero, então a primeira chamada depois de um tempo parado pode levar alguns segundos.
@@ -325,3 +327,65 @@ Cada projeto valida as variáveis de ambiente com `zod` na subida e lista o que 
 | Linha do tempo | O que aconteceu com cada contato num pedido (enviado, publicado na página, teria sido enviado, falhou) |
 | Outbox | Tabela em que o evento é gravado na mesma transação da mudança, e publicado logo depois |
 | Saída rápida | Volta instantânea às notas, revogando a sessão segura |
+
+## Anexo: Canvas
+
+Lean Canvas da versão web, na ordem de preenchimento do modelo (problema e segmentos primeiro, vantagem competitiva por último). A fonte é [`canvas/canvas.html`](https://github.com/Carloslgp/Ghosty_App_Web/blob/main/ghosty-docs/canvas/canvas.html); `npm run canvas` gera esta imagem e o [`canvas.pdf`](https://github.com/Carloslgp/Ghosty_App_Web/blob/main/ghosty-docs/canvas/canvas.pdf), uma página A4 para entregar à parte.
+
+![Lean Canvas do Ghosty](../canvas/canvas.png)
+
+## Anexo: prints do app na Azure
+
+Tirados com `npm run prints` (Chrome headless), direto das URLs públicas da tabela "Links da entrega", na conta de demonstração "Maria Exemplo". O Teste seguro não envia nada para ninguém. Chaves e tokens aparecem cortados.
+
+### Swagger do BFF
+
+![Swagger do BFF no Azure Container Apps](prints/swagger-bff.png)
+
+### Swagger dos microserviços
+
+![Swagger do notes-service (MongoDB Atlas)](prints/swagger-notes-service.png)
+
+![Swagger do safety-service (Azure SQL)](prints/swagger-safety-service.png)
+
+### Swagger da Azure Function e dos eventos
+
+![Swagger da Azure Function (HTTP triggers)](prints/swagger-function.png)
+
+![AsyncAPI: eventos das Storage Queues](prints/swagger-eventos-asyncapi.png)
+
+### API Gateway
+
+![Swagger do BFF exportado do API Management, com o gateway como servidor](prints/swagger-api-gateway-bff.png)
+
+![Chamadas reais pelo API Gateway: 200 com as 3 fontes no /aggregated-data, 401 sem a chave de assinatura e 403 direto no BFF](prints/chamadas-api-gateway.png)
+
+### Frontend funcionando
+
+![Entrar (shell)](prints/front-entrar.png)
+
+![Fachada: notas e listas (remote notes)](prints/front-fachada-notas.png)
+
+![Área de segurança depois do código na busca (remote safety): painel e prontidão calculada pela Function](prints/front-seguranca-painel.png)
+
+![Rede de apoio: contatos, status do convite e ordem de aviso](prints/front-seguranca-rede-de-apoio.png)
+
+![Mensagem com a prévia montada pela Function](prints/front-seguranca-mensagem.png)
+
+![Check-in "cheguei bem"](prints/front-seguranca-check-in.png)
+
+![Teste seguro: contagem antes do envio](prints/front-teste-seguro-contagem.png)
+
+![Teste seguro: linha do tempo, com cada contato em "teria sido enviado"](prints/front-teste-seguro.png)
+
+![Página do contato (canal web), aberta pelo link do convite](prints/front-pagina-do-contato.png)
+
+### Docker Hub, GitHub Actions e documentação
+
+![Docker Hub: as 3 imagens](prints/docker-hub.png)
+
+![Docker Hub: tags v1 e sha da imagem do BFF](prints/docker-hub-tags.png)
+
+![GitHub Actions: CI de cada projeto, e2e e publicação das imagens](prints/github-actions.png)
+
+![Página de documentação com todos os links e Swaggers](prints/documentacao-links.png)

@@ -36,6 +36,8 @@ const schema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     /** URL pública do BFF. Também é o `iss` do JWT. */
     PUBLIC_BASE_URL: z.url().default('http://localhost:3000'),
+    /** Servidor mostrado no Swagger (na nuvem, o API Gateway). Vazio: o localhost do contrato. */
+    OPENAPI_SERVER_URL: z.url().or(z.literal('')).default(''),
     CORS_ORIGINS: list,
     /** Vazio desliga a verificação (máquina local, sem API Management). */
     GATEWAY_SECRET: z.string().default(''),

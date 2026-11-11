@@ -9,6 +9,8 @@ const schema = z
     MONGODB_DB: z.string().trim().min(1).default('notes_dev'),
     INTERNAL_API_KEY: z.string().min(8, 'precisa ter pelo menos 8 caracteres'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    /** Servidor mostrado no Swagger (na nuvem, o endereço do Container App). Vazio: o localhost do contrato. */
+    OPENAPI_SERVER_URL: z.url().or(z.literal('')).default(''),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.MONGODB_URI === '') {
