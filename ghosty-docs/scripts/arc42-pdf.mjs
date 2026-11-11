@@ -51,7 +51,7 @@ export function buildDocument({ arc42, c4, baseDir = path.join(docs, 'arc42') })
   // O C4 entra como anexo: os títulos descem um nível e ganham o prefixo "c4-" nas âncoras.
   const annex = c4
     .replace(/^# C4 Model\n/m, '')
-    .replace(/^Diagramas em Mermaid C4.*\n/m, '')
+    .replace(/^Diagramas em Mermaid.*\n/m, '')
     .replace(/^(#{2,3}) /gm, '#$1 ');
 
   const marked = new Marked({ gfm: true });
@@ -101,8 +101,10 @@ export function htmlPage({ title, content, mermaidSrc }) {
   code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 8.5pt; background: #f4f4f4; padding: 0 2pt; border-radius: 2pt; }
   pre { background: #f6f6f6; padding: 6pt 8pt; border-radius: 3pt; overflow: hidden; white-space: pre-wrap; font-size: 8.5pt; }
   pre code { background: none; padding: 0; }
-  pre.mermaid { background: none; text-align: center; break-inside: avoid; white-space: pre; padding: 0; margin: 4pt 0; }
-  pre.mermaid svg { display: block; margin: 0 auto; }
+  pre.mermaid { background: none; text-align: center; break-inside: avoid; white-space: pre; padding: 0; margin: 4pt 0; overflow: visible; }
+  /* O Chrome imprime o texto um pouco mais largo do que mediu: o que passar da borda continua visível. */
+  pre.mermaid svg { display: block; margin: 0 auto; overflow: visible; }
+  pre.mermaid g.cluster-label div { background: #fff; }
   blockquote { margin: 6pt 0; padding: 2pt 10pt; border-left: 3pt solid #ccc; color: #444; }
   a { color: #0b57d0; text-decoration: none; word-break: break-all; }
   hr { display: none; }
@@ -129,12 +131,41 @@ ${content}
     svg.setAttribute('width', String(Math.floor(box.width * scale)));
     svg.setAttribute('height', String(Math.floor(box.height * scale)));
   }
-  // O layout C4 do Mermaid limita cada linha à largura da tela (screen.availWidth). No headless ela é
-  // 800 px e só cabem 2 elementos por linha; num navegador comum (e no GitHub) vale o $c4ShapeInRow.
-  Object.defineProperty(window.screen, 'availWidth', { configurable: true, get: () => 1920 });
-  mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+  /**
+   * O Mermaid desenha os títulos dos limites (subgraphs) antes das setas, e uma seta que cruza o título
+   * passa por cima do texto. Aqui o título vai para depois das setas, com fundo branco (ver o CSS).
+   */
+  function liftClusterLabels(svg) {
+    svg.querySelectorAll('g.cluster-label').forEach((label) => {
+      const root = label.closest('g.root');
+      if (root) root.appendChild(label);
+    });
+  }
+  /**
+   * Nos diagramas de sequência, as linhas de vida passam atrás do texto das mensagens e dos blocos
+   * (loop, par, alt). Um retângulo branco logo atrás de cada texto esconde a linha só onde há texto.
+   */
+  function maskSequenceText(svg) {
+    svg.querySelectorAll('text.messageText, text.loopText').forEach((text) => {
+      const box = text.getBBox();
+      if (!box.width) return;
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String(box.x - 3));
+      rect.setAttribute('y', String(box.y - 1));
+      rect.setAttribute('width', String(box.width + 6));
+      rect.setAttribute('height', String(box.height + 2));
+      rect.setAttribute('fill', '#fff');
+      if (text.getAttribute('transform')) rect.setAttribute('transform', text.getAttribute('transform'));
+      text.parentNode.insertBefore(rect, text);
+    });
+  }
+  // deterministicIds: sem ele, o id de cada diagrama vem do relógio. No Chrome headless com tempo virtual,
+  // dois diagramas seguidos recebem o mesmo id, e o segundo é desenhado dentro do primeiro.
+  mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict', deterministicIds: true });
   mermaid.run({ querySelector: 'pre.mermaid' })
     .then(() => {
+      document.querySelectorAll('pre.mermaid svg').forEach(liftClusterLabels);
+      document.querySelectorAll('pre.mermaid svg').forEach(maskSequenceText);
       document.querySelectorAll('pre.mermaid svg').forEach(fitToPage);
       document.body.dataset.ready = 'yes';
     })
@@ -207,6 +238,14 @@ function main() {
   if (!dom.includes('data-ready="yes"') || drawn !== expected) {
     throw new Error(
       `Os diagramas não desenharam (${drawn} de ${expected}). Sem internet? Use MERMAID_JS=<mermaid.min.js local>.`,
+    );
+  }
+  const svgIds = [...dom.matchAll(/<pre class="mermaid"[^>]*>\s*<svg[^>]*\bid="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  if (new Set(svgIds).size !== expected) {
+    throw new Error(
+      `Dois diagramas saíram com o mesmo id (${svgIds.join(', ')}): um seria desenhado dentro do outro.`,
     );
   }
 

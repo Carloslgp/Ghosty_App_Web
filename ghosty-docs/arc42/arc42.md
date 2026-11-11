@@ -131,7 +131,7 @@ sequenceDiagram
   participant S as safety-service
   participant FN as Function (HTTP)
   F->>G: GET /aggregated-data (JWT + X-Safety-Token + chave)
-  G->>G: validate-jwt, rate-limit, CORS
+  Note over G: validate-jwt, rate-limit, CORS
   G->>B: encaminha + X-Gateway-Secret
   par em paralelo
     B->>N: GET /notes/summary
@@ -157,10 +157,10 @@ sequenceDiagram
   participant FN as Function dispatch-alert
   participant Q2 as fila alert-dispatches
   participant TG as Telegram
-  F->>F: segurar 2 s, contagem regressiva, localização (se permitida)
+  Note over F: segurar 2 s, contagem regressiva, localização (se permitida)
   F->>B: POST /safety/help-requests (Idempotency-Key)
   B->>S: POST /help-requests
-  S->>S: grava o pedido e o evento no outbox (mesma transação)
+  Note over S: grava o pedido e o evento no outbox (mesma transação)
   S-->>F: 202 + Location
   S->>Q1: HelpRequestTriggered (logo depois do commit)
   Q1->>FN: Queue Trigger
@@ -186,7 +186,7 @@ sequenceDiagram
   Q->>FN: Queue Trigger no prazo
   FN->>S: POST /internal/check-ins/{id}/expire (versão)
   alt ativo e na mesma versão
-    S->>S: vence o check-in e cria um pedido de ajuda (origem check_in) + outbox
+    Note over S: vence o check-in e cria um pedido de ajuda (origem check_in) + outbox
   else confirmado, cancelado ou estendido
     S-->>FN: ignored
   end
@@ -225,7 +225,9 @@ flowchart LR
   bff --> fn
   core <--> st <--> fn
   fn --> core
-  kv -.-> bff & notes & core & fn & apim
+  apim -. segredos .-> kv
+  CAE -. segredos .-> kv
+  fn -. segredos .-> kv
   hub -. imagens .-> CAE
   CAE -.-> law
 ```

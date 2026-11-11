@@ -47,10 +47,16 @@ describe('arc42', () => {
     }
   });
 
-  it('o C4 tem contexto, containers e componentes', () => {
-    expect(c4).toMatch(/^C4Context$/m);
-    expect(c4).toMatch(/^C4Container$/m);
-    expect(c4.match(/^C4Component$/gm)).toHaveLength(4);
+  it('o C4 tem contexto, containers e componentes, na notação do C4', () => {
+    const blocks = [...c4.matchAll(/^```mermaid\r?\n([\s\S]*?)^```\r?$/gm)].map((match) => match[1]);
+    expect(c4).toMatch(/^## 1\. Contexto\r?$/m);
+    expect(c4).toMatch(/^## 2\. Containers\r?$/m);
+    expect(c4.match(/^### 3\.\d /gm)).toHaveLength(4);
+    expect(blocks).toHaveLength(6);
+    expect(blocks[0]).toMatch(/:::person/);
+    expect(blocks[0]).toMatch(/:::system/);
+    expect(blocks[1]).toMatch(/:::container/);
+    for (const block of blocks.slice(2)) expect(block).toMatch(/:::component/);
   });
 });
 
