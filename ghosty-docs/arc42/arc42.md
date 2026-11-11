@@ -384,7 +384,7 @@ Tirados com `npm run prints` (Chrome headless), direto das URLs públicas da tab
 
 ![Docker Hub: as 3 imagens](prints/docker-hub.png)
 
-![Docker Hub: tags v1 e sha da imagem do BFF](prints/docker-hub-tags.png)
+![Docker Hub: tags da imagem do BFF (a v1.1 roda na Azure)](prints/docker-hub-tags.png)
 
 ![GitHub Actions: CI de cada projeto, e2e e publicação das imagens](prints/github-actions.png)
 
